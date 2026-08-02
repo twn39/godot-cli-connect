@@ -30,6 +30,7 @@ from .operations.scene_editor import (
 )
 from .operations.docs_search import search_docs
 from .operations.screenshot_diff import compare_screenshots
+from .operations.project_init import init_project
 
 __all__ = [
     "_run_godot_cmd",
@@ -61,5 +62,7 @@ __all__ = [
     "inspect_signals",
     "search_docs",
     "compare_screenshots",
+    "init_project",
 ]
+
 

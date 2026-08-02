@@ -83,20 +83,26 @@ func run_create() -> void:
 
 
 def reimport_assets(project_path: str) -> Dict[str, Any]:
-    """Forces Godot to scan filesystem and reimport new/modified assets."""
+    """Forces Godot to scan filesystem and reimport new/modified assets (PNG, SVG, WAV, etc.)."""
     godot_bin = find_godot_executable()
     abs_project = os.path.abspath(project_path)
 
     cmd = build_godot_cmd(
-        godot_bin, project_path=abs_project, headless=True, editor=True, quit_after=True
+        godot_bin,
+        project_path=abs_project,
+        headless=True,
+        extra_flags=["--editor", "--quit"],
     )
 
     try:
         res = run_godot_cmd(cmd, timeout=30)
         return {
             "status": "success" if res.returncode == 0 else "failure",
-            "message": "Filesystem scanned and reimported.",
+            "project_path": abs_project,
+            "message": "Filesystem scanned and assets reimported successfully.",
             "stdout": res.stdout,
+            "returncode": res.returncode,
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
+

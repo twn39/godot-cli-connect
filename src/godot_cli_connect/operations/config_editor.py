@@ -14,6 +14,12 @@ from .runner import run_godot_cmd, build_godot_cmd
 def parse_config_value(raw_val: str) -> Any:
     """Parses raw CLI input strings into appropriate Python types (int, float, bool, or str)."""
     raw_clean = raw_val.strip()
+    while (
+        (raw_clean.startswith('"') and raw_clean.endswith('"'))
+        or (raw_clean.startswith("'") and raw_clean.endswith("'"))
+    ) and len(raw_clean) >= 2:
+        raw_clean = raw_clean[1:-1].strip()
+
     if raw_clean.lower() == "true":
         return True
     if raw_clean.lower() == "false":
@@ -24,6 +30,7 @@ def parse_config_value(raw_val: str) -> Any:
         return int(raw_clean)
     except ValueError:
         return raw_clean
+
 
 
 def set_config_setting_offline(

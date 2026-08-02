@@ -11,13 +11,28 @@ from ..finder import find_godot_executable
 from .runner import build_godot_cmd, run_godot_cmd
 
 
-def create_scene_offline(abs_scene: str, root_type: str, root_name: str) -> bool:
-    """Fallback offline text-based .tscn creator."""
+def create_scene_offline(
+    abs_scene: str,
+    root_type: str,
+    root_name: str,
+    script_path: Optional[str] = None,
+) -> bool:
+    """Fallback offline text-based .tscn creator with script support."""
     try:
         dir_path = os.path.dirname(abs_scene)
         if dir_path:
             os.makedirs(dir_path, exist_ok=True)
-        content = f"""[gd_scene format=3]
+
+        if script_path:
+            content = f"""[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="{script_path}" id="1_script"]
+
+[node name="{root_name}" type="{root_type}"]
+script = ExtResource("1_script")
+"""
+        else:
+            content = f"""[gd_scene format=3]
 
 [node name="{root_name}" type="{root_type}"]
 """
@@ -33,8 +48,9 @@ def create_scene(
     save_path: str,
     root_type: str = "Node2D",
     root_name: Optional[str] = None,
+    script_path: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Creates a new Godot .tscn scene file with a specified root node type."""
+    """Creates a new Godot .tscn scene file with a specified root node type and optional script attachment."""
     abs_project = os.path.abspath(project_path)
     if save_path.startswith("res://"):
         rel_path = save_path[6:]
@@ -57,6 +73,9 @@ def create_scene(
         b64_type = base64.b64encode(root_type.encode("utf-8")).decode("ascii")
         b64_name = base64.b64encode(actual_root_name.encode("utf-8")).decode("ascii")
         b64_path = base64.b64encode(res_save_path.encode("utf-8")).decode("ascii")
+        b64_script = base64.b64encode((script_path or "").encode("utf-8")).decode(
+            "ascii"
+        )
 
         helper_code = f"""
 extends SceneTree
@@ -68,6 +87,7 @@ func run_create_scene() -> void:
     var r_type = Marshalls.base64_to_utf8("{b64_type}")
     var r_name = Marshalls.base64_to_utf8("{b64_name}")
     var s_path = Marshalls.base64_to_utf8("{b64_path}")
+    var sc_path = Marshalls.base64_to_utf8("{b64_script}")
 
     if not ClassDB.class_exists(r_type):
         print("SCENE_CREATE_ERR:Class " + r_type + " does not exist")
@@ -81,6 +101,11 @@ func run_create_scene() -> void:
         return
 
     root_obj.name = r_name
+
+    if sc_path != "" and ResourceLoader.exists(sc_path):
+        var sc_res = load(sc_path)
+        if sc_res != null and sc_res is Script:
+            root_obj.set_script(sc_res)
 
     var dir_dir = s_path.get_base_dir()
     if dir_dir != "" and dir_dir != "res://":
@@ -116,6 +141,7 @@ func run_create_scene() -> void:
                     "save_path": res_save_path,
                     "root_name": actual_root_name,
                     "root_type": root_type,
+                    "script_path": script_path,
                 }
         finally:
             if os.path.exists(temp_script_path):
@@ -124,14 +150,16 @@ func run_create_scene() -> void:
         pass
 
     # Offline fallback
-    if create_scene_offline(abs_save_path, root_type, actual_root_name):
+    if create_scene_offline(abs_save_path, root_type, actual_root_name, script_path):
         return {
             "status": "success",
             "mode": "offline",
             "save_path": res_save_path,
             "root_name": actual_root_name,
             "root_type": root_type,
+            "script_path": script_path,
         }
+
 
     return {"status": "error", "message": f"Failed to create scene at {res_save_path}"}
 

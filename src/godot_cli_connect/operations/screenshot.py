@@ -30,13 +30,21 @@ func _init() -> void:
 func run_capture() -> void:
     var save_path = Marshalls.base64_to_utf8("{b64_output}")
     var main_scene_path = ProjectSettings.get_setting("application/run/main_scene")
+
+    var vp = root.get_viewport()
+    var w = ProjectSettings.get_setting("display/window/size/viewport_width")
+    var h = ProjectSettings.get_setting("display/window/size/viewport_height")
+    if w != null and h != null:
+        vp.size = Vector2i(int(w), int(h))
+
     if main_scene_path and ResourceLoader.exists(main_scene_path):
         var scn = load(main_scene_path).instantiate()
         root.add_child(scn)
+
     for i in range({wait_frames}):
         await process_frame
     await RenderingServer.frame_post_draw
-    var img = root.get_viewport().get_texture().get_image()
+    var img = vp.get_texture().get_image()
     img.save_png(save_path)
     print("SCREENSHOT_SAVED:" + save_path)
     quit()

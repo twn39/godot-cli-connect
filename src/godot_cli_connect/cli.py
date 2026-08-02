@@ -37,7 +37,9 @@ from .core import (
     inspect_signals,
     search_docs,
     compare_screenshots,
+    init_project,
 )
+
 
 from .finder import find_godot_executable
 
@@ -389,6 +391,7 @@ def cmd_create_resource(
 
 
 @app.command("reimport")
+@app.command("import-assets")
 def cmd_reimport(
     project: str = typer.Option(
         ".", "--project", "-p", help="Path to Godot project directory"
@@ -401,7 +404,15 @@ def cmd_reimport(
     res = reimport_assets(project)
     if json_output:
         console.print_json(data=res)
+        if res["status"] != "success":
+            raise typer.Exit(code=1)
         return
+    if res["status"] == "success":
+        console.print(f"[bold green]✔ Assets reimported successfully:[/bold green] [underline]{res.get('project_path', project)}[/underline]")
+    else:
+        console.print(f"[bold red]✖ Asset reimport failed:[/bold red] {res.get('message')}")
+        raise typer.Exit(code=1)
+
 
 
 @app.command("eval")
@@ -717,6 +728,12 @@ def cmd_create_scene(
     name: Optional[str] = typer.Option(
         None, "--name", "-n", help="Optional custom name for root node"
     ),
+    script: Optional[str] = typer.Option(
+        None,
+        "--script",
+        "-s",
+        help="Optional script file path to attach to root node (e.g. res://main.gd)",
+    ),
     project: str = typer.Option(
         ".", "--project", "-p", help="Path to Godot project directory"
     ),
@@ -724,8 +741,10 @@ def cmd_create_scene(
         False, "--json", help="Output raw JSON for LLM Agent parsing"
     ),
 ):
-    """Create a new Godot .tscn scene file with a specified root node."""
-    res = create_scene(project, save_path, root_type=root_type, root_name=name)
+    """Create a new Godot .tscn scene file with a specified root node and optional script."""
+    res = create_scene(
+        project, save_path, root_type=root_type, root_name=name, script_path=script
+    )
     if json_output:
         console.print_json(data=res)
         if res["status"] != "success":
@@ -733,14 +752,16 @@ def cmd_create_scene(
         return
 
     if res["status"] == "success":
+        script_info = f" [script: {res['script_path']}]" if res.get("script_path") else ""
         console.print(
-            f"[bold green]✔ Scene created ([dim]mode: {res['mode']}[/dim]):[/bold green] {res['save_path']} (root: {res['root_name']} [{res['root_type']}])"
+            f"[bold green]✔ Scene created ([dim]mode: {res['mode']}[/dim]):[/bold green] {res['save_path']} (root: {res['root_name']} [{res['root_type']}]{script_info})"
         )
     else:
         console.print(
             f"[bold red]✖ Scene creation failed:[/bold red] {res.get('message')}"
         )
         raise typer.Exit(code=1)
+
 
 
 @app.command("add-node")
@@ -1190,5 +1211,46 @@ def cmd_screenshot_diff(
         raise typer.Exit(code=1)
 
 
+@app.command("init-project")
+def cmd_init_project(
+    project_path: str = typer.Argument(..., help="Target directory path for the new project"),
+    name: Optional[str] = typer.Option(
+        None, "--name", "-n", help="Display name of the project (default: directory name)"
+    ),
+    no_scene: bool = typer.Option(
+        False, "--no-scene", help="Do not create a default main.tscn scene file"
+    ),
+    root_type: str = typer.Option(
+        "Node2D", "--root-type", "-r", help="Root node type for the default main.tscn"
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output raw JSON for LLM Agent parsing"
+    ),
+):
+    """Initialize a new empty Godot 4 project directory with project.godot and .godot/ cache."""
+    res = init_project(
+        project_path=project_path,
+        project_name=name,
+        create_main_scene=not no_scene,
+        root_type=root_type,
+    )
+    if json_output:
+        console.print_json(data=res)
+        if res["status"] != "success":
+            raise typer.Exit(code=1)
+        return
+
+    if res["status"] == "success":
+        console.print(
+            f"[bold green]✔ Initialized Godot project ([dim]mode: {res['mode']}[/dim]):[/bold green] {res['project_name']} ➔ [underline]{res['project_path']}[/underline]"
+        )
+    else:
+        console.print(
+            f"[bold red]✖ Project initialization failed:[/bold red] {res.get('message')}"
+        )
+        raise typer.Exit(code=1)
+
+
 if __name__ == "__main__":
     app()
+
