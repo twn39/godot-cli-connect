@@ -3,8 +3,9 @@ Unit and integration tests for scene_inspector module
 """
 
 from typer.testing import CliRunner
-from godot_cli_connect.operations.scene_inspector import inspect_scene, parse_tscn_text
+
 from godot_cli_connect.cli import app
+from godot_cli_connect.operations.scene_inspector import inspect_scene, parse_tscn_text
 
 runner = CliRunner()
 

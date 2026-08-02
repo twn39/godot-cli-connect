@@ -3,8 +3,9 @@ Unit tests for project_init module and init-project CLI command
 """
 
 from typer.testing import CliRunner
-from godot_cli_connect.operations.project_init import init_project
+
 from godot_cli_connect.cli import app
+from godot_cli_connect.operations.project_init import init_project
 
 runner = CliRunner()
 

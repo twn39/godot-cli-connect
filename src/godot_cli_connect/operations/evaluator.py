@@ -2,18 +2,20 @@
 Dynamic GDScript code evaluation and REPL runner module
 """
 
-import os
-import json
 import base64
+import json
+import os
 import tempfile
-from typing import Dict, Any
+from typing import Any
+
 from ..finder import find_godot_executable
-from .runner import run_godot_cmd, build_godot_cmd
+from ..models import err, ok
+from .runner import build_godot_cmd, run_godot_cmd
 
 
 def eval_code(
     project_path: str, code: str, vars_json: str = "{}", timeout: int = 20
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Dynamically evaluates GDScript code or expressions using a 3-Tier Evaluation Pipeline:
     Tier 1: Fast Expression evaluation (with variable binding support)
@@ -89,9 +91,7 @@ func run_pipeline() -> void:
     quit(1)
 """
 
-    with tempfile.NamedTemporaryFile(
-        suffix=".gd", delete=False, mode="w", encoding="utf-8"
-    ) as tf:
+    with tempfile.NamedTemporaryFile(suffix=".gd", delete=False, mode="w", encoding="utf-8") as tf:
         tf.write(helper_code)
         temp_script_path = tf.name
 
@@ -124,20 +124,14 @@ func run_pipeline() -> void:
                 stdout_lines.append(line_str)
 
         if is_error or (res.returncode != 0 and eval_result is None):
-            return {
-                "status": "error",
-                "message": err_msg or res.stderr or res.stdout,
-                "stdout": stdout_lines,
-            }
+            return err(
+                err_msg or res.stderr or res.stdout or "Evaluation failed",
+                stdout=stdout_lines,
+            )
 
-        return {
-            "status": "success",
-            "mode": mode,
-            "result": eval_result,
-            "stdout": stdout_lines,
-        }
+        return ok(mode=mode, result=eval_result, stdout=stdout_lines)
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return err(str(e))
     finally:
         if os.path.exists(temp_script_path):
             os.remove(temp_script_path)

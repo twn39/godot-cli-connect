@@ -2,105 +2,36 @@
 Godot project settings and InputMap configuration editor module
 """
 
-import os
-import json
 import base64
+import json
+import os
 import tempfile
-from typing import Dict, Any
+from typing import Any
+
 from ..finder import find_godot_executable
-from .runner import run_godot_cmd, build_godot_cmd
+from ..models import err, ok
+from .config_ini import (
+    parse_config_value,
+    parse_project_godot,
+    set_config_setting_offline,
+    split_setting_path,
+)
+from .runner import build_godot_cmd, run_godot_cmd
+
+# Re-export offline helpers for callers/tests that import from this module.
+__all__ = [
+    "add_autoload",
+    "add_input_action",
+    "get_config_setting",
+    "list_autoloads",
+    "parse_config_value",
+    "remove_autoload",
+    "set_config_setting",
+    "set_config_setting_offline",
+]
 
 
-def parse_config_value(raw_val: str) -> Any:
-    """Parses raw CLI input strings into appropriate Python types (int, float, bool, or str)."""
-    raw_clean = raw_val.strip()
-    while (
-        (raw_clean.startswith('"') and raw_clean.endswith('"'))
-        or (raw_clean.startswith("'") and raw_clean.endswith("'"))
-    ) and len(raw_clean) >= 2:
-        raw_clean = raw_clean[1:-1].strip()
-
-    if raw_clean.lower() == "true":
-        return True
-    if raw_clean.lower() == "false":
-        return False
-    try:
-        if "." in raw_clean:
-            return float(raw_clean)
-        return int(raw_clean)
-    except ValueError:
-        return raw_clean
-
-
-
-def set_config_setting_offline(
-    project_godot_path: str, setting_path: str, parsed_val: Any
-) -> bool:
-    """Fallback offline text-based INI editor for project.godot."""
-    if not os.path.exists(project_godot_path):
-        return False
-
-    parts = setting_path.split("/")
-    if len(parts) > 1:
-        section = "/".join(parts[:-1])
-        key = parts[-1]
-    else:
-        section = "global"
-        key = parts[0]
-
-    val_str = (
-        json.dumps(parsed_val)
-        if isinstance(parsed_val, (dict, list))
-        else (
-            "true"
-            if parsed_val is True
-            else "false"
-            if parsed_val is False
-            else f'"{parsed_val}"'
-            if isinstance(parsed_val, str)
-            else str(parsed_val)
-        )
-    )
-
-    lines = []
-    with open(project_godot_path, "r", encoding="utf-8", errors="ignore") as f:
-        lines = f.readlines()
-
-    section_found = False
-    key_updated = False
-    new_lines = []
-    current_sec = "global"
-
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            current_sec = stripped[1:-1]
-            if current_sec == section:
-                section_found = True
-        elif current_sec == section and "=" in stripped:
-            k = stripped.split("=", 1)[0].strip()
-            if k == key:
-                line = f"{key}={val_str}\n"
-                key_updated = True
-        new_lines.append(line)
-
-    if not section_found:
-        new_lines.append(f"\n[{section}]\n{key}={val_str}\n")
-    elif not key_updated:
-        # Insert key under section
-        for i, line in enumerate(new_lines):
-            if line.strip() == f"[{section}]":
-                new_lines.insert(i + 1, f"{key}={val_str}\n")
-                break
-
-    with open(project_godot_path, "w", encoding="utf-8") as f:
-        f.writelines(new_lines)
-    return True
-
-
-def set_config_setting(
-    project_path: str, setting_path: str, raw_value: str
-) -> Dict[str, Any]:
+def set_config_setting(project_path: str, setting_path: str, raw_value: str) -> dict[str, Any]:
     """Updates a ProjectSettings entry persistently in project.godot."""
     abs_project = os.path.abspath(project_path)
     parsed_val = parse_config_value(raw_value)
@@ -109,9 +40,7 @@ def set_config_setting(
     try:
         godot_bin = find_godot_executable()
         b64_key = base64.b64encode(setting_path.encode("utf-8")).decode("ascii")
-        b64_val = base64.b64encode(json.dumps(parsed_val).encode("utf-8")).decode(
-            "ascii"
-        )
+        b64_val = base64.b64encode(json.dumps(parsed_val).encode("utf-8")).decode("ascii")
 
         helper_code = f"""
 extends SceneTree
@@ -142,12 +71,11 @@ func run_set() -> void:
         try:
             res = run_godot_cmd(cmd, timeout=20)
             if "CONFIG_SAVED:ERR=0" in res.stdout:
-                return {
-                    "status": "success",
-                    "mode": "engine",
-                    "setting_path": setting_path,
-                    "value": parsed_val,
-                }
+                return ok(
+                    mode="engine",
+                    setting_path=setting_path,
+                    value=parsed_val,
+                )
         finally:
             if os.path.exists(temp_script_path):
                 os.remove(temp_script_path)
@@ -157,19 +85,18 @@ func run_set() -> void:
     # Fallback to offline INI editor
     success = set_config_setting_offline(project_godot_path, setting_path, parsed_val)
     if success:
-        return {
-            "status": "success",
-            "mode": "offline",
-            "setting_path": setting_path,
-            "value": parsed_val,
-        }
+        return ok(
+            mode="offline",
+            setting_path=setting_path,
+            value=parsed_val,
+        )
 
-    return {"status": "error", "message": f"Failed to update setting {setting_path}"}
+    return err(f"Failed to update setting {setting_path}")
 
 
 def add_input_action(
     project_path: str, action_name: str, key_name: str = "KEY_A", append: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Adds or updates a persistent InputMap action with key binding in project.godot."""
     abs_project = os.path.abspath(project_path)
 
@@ -231,25 +158,182 @@ func run_input_add() -> void:
         try:
             res = run_godot_cmd(cmd, timeout=20)
             if "INPUT_SAVED:ERR=0" in res.stdout:
-                return {
-                    "status": "success",
-                    "mode": "engine",
-                    "action_name": action_name,
-                    "key_bound": key_name,
-                }
+                return ok(
+                    mode="engine",
+                    action_name=action_name,
+                    key_bound=key_name,
+                )
         finally:
             if os.path.exists(temp_script_path):
                 os.remove(temp_script_path)
     except Exception:
         pass
 
-    # Fallback to direct config setting setting for input action
+    # Fallback to direct config setting for input action
     fallback_res = set_config_setting(
-        project_path, f"input/{action_name}", {"deadzone": 0.5, "events": []}
+        project_path, f"input/{action_name}", '{"deadzone": 0.5, "events": []}'
     )
     if fallback_res.get("status") == "success":
         fallback_res["action_name"] = action_name
         fallback_res["key_bound"] = key_name
         return fallback_res
 
-    return {"status": "error", "message": f"Failed to bind input action {action_name}"}
+    return err(f"Failed to bind input action {action_name}")
+
+
+def get_config_setting(project_path: str, setting_path: str) -> dict[str, Any]:
+    """Read a single project.godot setting (offline INI parse)."""
+    abs_project = os.path.abspath(project_path)
+    project_godot_path = os.path.join(abs_project, "project.godot")
+    if not os.path.exists(project_godot_path):
+        return err(f"No project.godot found at {abs_project}")
+
+    section, key = split_setting_path(setting_path)
+
+    sections = parse_project_godot(project_godot_path)
+    raw = None
+    used_section = section
+    if section in sections and key in sections[section]:
+        raw = sections[section][key]
+    elif "application" in sections and setting_path in sections["application"]:
+        # rare: full path as key
+        raw = sections["application"][setting_path]
+        used_section = "application"
+        key = setting_path
+    elif section != "application" and "application" in sections:
+        # allow config/name without application/ prefix
+        if setting_path in sections["application"]:
+            raw = sections["application"][setting_path]
+            used_section = "application"
+            key = setting_path
+
+    if raw is None:
+        return err(
+            f"Setting not found: {setting_path}",
+            setting_path=setting_path,
+        )
+
+    # Strip surrounding quotes for display
+    display = raw
+    if len(display) >= 2 and display[0] == '"' and display[-1] == '"':
+        display = display[1:-1]
+    parsed: Any = display
+    if display.lower() == "true":
+        parsed = True
+    elif display.lower() == "false":
+        parsed = False
+    else:
+        try:
+            if "." in display:
+                parsed = float(display)
+            else:
+                parsed = int(display)
+        except ValueError:
+            parsed = display
+
+    return ok(
+        mode="offline",
+        setting_path=setting_path,
+        section=used_section,
+        key=key,
+        raw=raw,
+        value=parsed,
+    )
+
+
+def add_autoload(
+    project_path: str,
+    name: str,
+    script_path: str,
+    *,
+    enabled: bool = True,
+) -> dict[str, Any]:
+    """
+    Register an Autoload singleton in project.godot.
+
+    Godot stores: name="*res://path.gd" (leading * means enabled).
+    """
+    abs_project = os.path.abspath(project_path)
+    project_godot = os.path.join(abs_project, "project.godot")
+    if not os.path.exists(project_godot):
+        return err(f"No project.godot found at {abs_project}")
+
+    res_path = script_path
+    if not res_path.startswith("res://"):
+        try:
+            res_path = f"res://{os.path.relpath(os.path.abspath(os.path.join(abs_project, script_path)), abs_project)}"
+        except ValueError:
+            res_path = f"res://{os.path.basename(script_path)}"
+
+    # set_config_setting_offline string-quotes values; store *path for enabled autoloads
+    raw_for_offline = f"*{res_path}" if enabled else res_path
+    wrote = set_config_setting_offline(project_godot, f"autoload/{name}", raw_for_offline)
+    if wrote:
+        return ok(
+            mode="offline",
+            autoload_name=name,
+            path=res_path,
+            enabled=enabled,
+        )
+    return err(f"Failed to add autoload {name}")
+
+
+def remove_autoload(project_path: str, name: str) -> dict[str, Any]:
+    """Remove an Autoload entry from project.godot."""
+    abs_project = os.path.abspath(project_path)
+    project_godot = os.path.join(abs_project, "project.godot")
+    if not os.path.exists(project_godot):
+        return err(f"No project.godot found at {abs_project}")
+    try:
+        with open(project_godot, encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+        current = "global"
+        new_lines = []
+        removed = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                current = stripped[1:-1]
+                new_lines.append(line)
+                continue
+            if current == "autoload" and "=" in stripped:
+                k = stripped.split("=", 1)[0].strip()
+                if k == name:
+                    removed = True
+                    continue
+            new_lines.append(line)
+        if not removed:
+            return err(
+                f"Autoload not found: {name}",
+                autoload_name=name,
+            )
+        with open(project_godot, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+        return ok(
+            mode="offline",
+            autoload_name=name,
+            message=f"Removed autoload {name}",
+        )
+    except Exception as e:
+        return err(str(e))
+
+
+def list_autoloads(project_path: str) -> dict[str, Any]:
+    """List Autoload singletons from project.godot."""
+    abs_project = os.path.abspath(project_path)
+    project_godot = os.path.join(abs_project, "project.godot")
+    if not os.path.exists(project_godot):
+        return err(f"No project.godot found at {abs_project}")
+    sections = parse_project_godot(project_godot)
+    autos = sections.get("autoload", {})
+    items = []
+    for name, raw in autos.items():
+        val = raw.strip().strip('"')
+        enabled = val.startswith("*")
+        path = val[1:] if enabled else val
+        items.append({"name": name, "path": path, "enabled": enabled, "raw": raw})
+    return ok(
+        mode="offline",
+        count=len(items),
+        autoloads=items,
+    )

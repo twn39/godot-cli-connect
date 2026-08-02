@@ -3,19 +3,20 @@ Godot project initialization module
 """
 
 import os
-import tempfile
-from typing import Dict, Any, Optional
+from typing import Any
+
 from ..finder import find_godot_executable
-from .runner import run_godot_cmd, build_godot_cmd
+from ..models import ok
+from .runner import build_godot_cmd, run_godot_cmd
 from .scene_editor import create_scene
 
 
 def init_project(
     project_path: str,
-    project_name: Optional[str] = None,
+    project_name: str | None = None,
     create_main_scene: bool = True,
     root_type: str = "Node2D",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Initializes a new empty Godot 4 project directory using Godot headless editor."""
     abs_project = os.path.abspath(project_path)
     os.makedirs(abs_project, exist_ok=True)
@@ -66,11 +67,10 @@ config/name="{actual_name}"
     except Exception:
         pass
 
-    return {
-        "status": "success",
-        "mode": mode,
-        "project_path": abs_project,
-        "project_name": actual_name,
-        "main_scene_created": main_scene_created,
-        "message": f"Initialized Godot project successfully at {abs_project}",
-    }
+    return ok(
+        message=f"Initialized Godot project successfully at {abs_project}",
+        mode=mode,
+        project_path=abs_project,
+        project_name=actual_name,
+        main_scene_created=main_scene_created,
+    )

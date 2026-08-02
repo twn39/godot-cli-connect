@@ -4,8 +4,9 @@ Unit and integration tests for screenshot_diff module and screenshot-diff CLI co
 
 from PIL import Image
 from typer.testing import CliRunner
-from godot_cli_connect.operations.screenshot_diff import compare_screenshots
+
 from godot_cli_connect.cli import app
+from godot_cli_connect.operations.screenshot_diff import compare_screenshots
 
 runner = CliRunner()
 

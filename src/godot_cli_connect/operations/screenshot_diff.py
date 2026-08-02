@@ -3,17 +3,20 @@ Offscreen screenshot visual diff comparison and red highlight mask generation mo
 """
 
 import os
-from typing import Dict, Any, Optional
+from typing import Any
+
 from PIL import Image, ImageEnhance
+
+from ..models import err, ok
 
 
 def compare_screenshots(
     baseline_path: str,
     current_path: str,
-    diff_output_path: Optional[str] = None,
+    diff_output_path: str | None = None,
     threshold: float = 0.05,
     tolerance: int = 10,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compares two screenshot images, calculates pixel difference percentage with tolerance filtering,
     and optionally generates a visual diff highlight mask image.
@@ -22,27 +25,21 @@ def compare_screenshots(
     abs_current = os.path.abspath(current_path)
 
     if not os.path.exists(abs_baseline):
-        return {
-            "status": "error",
-            "message": f"Baseline screenshot not found at {abs_baseline}",
-        }
+        return err(f"Baseline screenshot not found at {abs_baseline}")
     if not os.path.exists(abs_current):
-        return {
-            "status": "error",
-            "message": f"Current screenshot not found at {abs_current}",
-        }
+        return err(f"Current screenshot not found at {abs_current}")
 
     try:
         base_img = Image.open(abs_baseline).convert("RGBA")
         curr_img = Image.open(abs_current).convert("RGBA")
 
         if base_img.size != curr_img.size:
-            return {
-                "status": "error",
-                "message": f"Image dimension mismatch: baseline is {base_img.size}, current is {curr_img.size}",
-                "baseline_size": base_img.size,
-                "current_size": curr_img.size,
-            }
+            return err(
+                f"Image dimension mismatch: baseline is {base_img.size}, "
+                f"current is {curr_img.size}",
+                baseline_size=base_img.size,
+                current_size=curr_img.size,
+            )
 
         width, height = base_img.size
         total_pixels = width * height
@@ -55,9 +52,7 @@ def compare_screenshots(
         mask_pixels = diff_mask.load()
 
         # Create dimmed grayscale base image for diff overlay background
-        gray_curr = ImageEnhance.Brightness(
-            curr_img.convert("L").convert("RGBA")
-        ).enhance(0.4)
+        gray_curr = ImageEnhance.Brightness(curr_img.convert("L").convert("RGBA")).enhance(0.4)
         gray_pixels = gray_curr.load()
 
         for y in range(height):
@@ -91,10 +86,7 @@ def compare_screenshots(
             diff_mask.save(abs_diff_out)
             saved_diff_path = abs_diff_out
 
-        status_result = "success" if within_threshold else "diff_detected"
-
-        return {
-            "status": status_result,
+        payload = {
             "within_threshold": within_threshold,
             "diff_percentage": diff_percentage,
             "threshold": threshold,
@@ -105,5 +97,12 @@ def compare_screenshots(
             "current_path": abs_current,
             "diff_output_path": saved_diff_path,
         }
+        if within_threshold:
+            return ok(**payload)
+        return err(
+            f"Diff {diff_percentage:.2%} exceeds threshold {threshold:.2%}",
+            status="diff_detected",
+            **payload,
+        )
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return err(str(e))

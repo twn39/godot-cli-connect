@@ -2,38 +2,39 @@
 Godot .tscn scene file inspection and hierarchy parsing module
 """
 
+import base64
 import os
 import re
 import tempfile
-import base64
-from typing import Dict, Any, List, Optional
+from typing import Any
+
 from ..finder import find_godot_executable
-from .runner import run_godot_cmd, build_godot_cmd
+from ..models import err, ok
+from .runner import build_godot_cmd, run_godot_cmd
+from .tscn_common import (
+    SECTION_RE,
+    empty_node_shell,
+    parse_groups_attr,
+    parse_section_attrs,
+)
+
+
+def parse_attrs(attr_str: str) -> dict[str, str]:
+    """Parse section-header attributes (public alias for tests / callers)."""
+    return parse_section_attrs(attr_str)
 
 
 def parse_tscn_text(
     tscn_content: str, project_path: str, max_depth: int = 3, current_depth: int = 0
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Parses a Godot 4 .tscn text file content into a structured node hierarchy graph.
     Supports ext_resources, sub_resources, signal connections, and recursive sub-scene expansion.
     """
-    ext_resources: Dict[str, Dict[str, str]] = {}
-    sub_resources: Dict[str, Dict[str, str]] = {}
-    nodes: List[Dict[str, Any]] = []
-    connections: List[Dict[str, str]] = []
-
-    # Regex patterns
-    section_re = re.compile(r"^\[([a-zA-Z0-9_]+)\s*(.*)\]$")
-    attr_re = re.compile(r'([a-zA-Z0-9_]+)\s*=\s*("(?:[^"\\]|\\.)*"|\S+)')
-
-    def parse_attrs(attr_str: str) -> Dict[str, str]:
-        attrs = {}
-        for match in attr_re.finditer(attr_str):
-            k = match.group(1)
-            v = match.group(2).strip('"')
-            attrs[k] = v
-        return attrs
+    ext_resources: dict[str, dict[str, str]] = {}
+    sub_resources: dict[str, dict[str, str]] = {}
+    nodes: list[dict[str, Any]] = []
+    connections: list[dict[str, str]] = []
 
     lines = tscn_content.splitlines()
     i = 0
@@ -43,11 +44,11 @@ def parse_tscn_text(
             i += 1
             continue
 
-        sec_match = section_re.match(line)
+        sec_match = SECTION_RE.match(line)
         if sec_match:
             sec_type = sec_match.group(1)
             sec_attrs_str = sec_match.group(2)
-            attrs = parse_attrs(sec_attrs_str)
+            attrs = parse_section_attrs(sec_attrs_str)
 
             if sec_type == "ext_resource":
                 res_id = attrs.get("id")
@@ -61,25 +62,8 @@ def parse_tscn_text(
                 if res_id:
                     sub_resources[res_id] = {"type": attrs.get("type", "Resource")}
             elif sec_type == "node":
-                node_data: Dict[str, Any] = {
-                    "name": attrs.get("name", "Node"),
-                    "type": attrs.get("type", "Node"),
-                    "parent": attrs.get("parent"),
-                    "instance_id": attrs.get("instance"),
-                    "script_path": None,
-                    "groups": [],
-                    "properties": {},
-                    "children": [],
-                    "connections": [],
-                }
-                # Process groups if present in attrs string
-                if "groups=" in sec_attrs_str:
-                    groups_match = re.search(r"groups\s*=\s*\[(.*?)\]", sec_attrs_str)
-                    if groups_match:
-                        raw_groups = groups_match.group(1)
-                        node_data["groups"] = [
-                            g.strip(' "') for g in raw_groups.split(",") if g.strip()
-                        ]
+                node_data: dict[str, Any] = empty_node_shell(attrs)
+                node_data["groups"] = parse_groups_attr(sec_attrs_str)
 
                 # Read node property lines until next section or EOF
                 i += 1
@@ -88,7 +72,7 @@ def parse_tscn_text(
                     if not sub_line or sub_line.startswith(";"):
                         i += 1
                         continue
-                    if section_re.match(sub_line):
+                    if SECTION_RE.match(sub_line):
                         i -= 1  # Backtrack for outer loop
                         break
                     if "=" in sub_line:
@@ -100,9 +84,7 @@ def parse_tscn_text(
                             if ext_ref:
                                 ref_id = ext_ref.group(1)
                                 if ref_id in ext_resources:
-                                    node_data["script_path"] = ext_resources[ref_id][
-                                        "path"
-                                    ]
+                                    node_data["script_path"] = ext_resources[ref_id]["path"]
                         else:
                             node_data["properties"][pk] = pv_clean
                     i += 1
@@ -122,10 +104,10 @@ def parse_tscn_text(
         i += 1
 
     # Map connections to node objects
-    node_by_path: Dict[str, Dict[str, Any]] = {}
+    node_by_path: dict[str, dict[str, Any]] = {}
 
     # Identify Root node (first node without parent or parent=".")
-    root_node: Optional[Dict[str, Any]] = None
+    root_node: dict[str, Any] | None = None
 
     for node in nodes:
         parent = node["parent"]
@@ -149,7 +131,7 @@ def parse_tscn_text(
             root_node["connections"].append(conn)
 
     # Build multi-branch tree
-    tree_root: Optional[Dict[str, Any]] = None
+    tree_root: dict[str, Any] | None = None
 
     for node in nodes:
         parent = node["parent"]
@@ -173,18 +155,13 @@ def parse_tscn_text(
                 ext_ref = re.search(r'ExtResource\("?([^"\)]+)"?\)', inst_id)
                 if ext_ref:
                     ref_id = ext_ref.group(1)
-                    if ref_id in ext_resources and ext_resources[ref_id][
-                        "path"
-                    ].endswith(".tscn"):
-                        sub_scene_rel = ext_resources[ref_id]["path"].replace(
-                            "res://", ""
-                        )
+                    if ref_id in ext_resources and ext_resources[ref_id]["path"].endswith(".tscn"):
+                        sub_scene_rel = ext_resources[ref_id]["path"].replace("res://", "")
                         sub_scene_abs = os.path.join(project_path, sub_scene_rel)
                         if os.path.exists(sub_scene_abs):
                             try:
                                 with open(
                                     sub_scene_abs,
-                                    "r",
                                     encoding="utf-8",
                                     errors="ignore",
                                 ) as sf:
@@ -196,9 +173,7 @@ def parse_tscn_text(
                                     )
                                     if sub_parsed.get("root_node"):
                                         sub_root = sub_parsed["root_node"]
-                                        node["instance_source"] = ext_resources[ref_id][
-                                            "path"
-                                        ]
+                                        node["instance_source"] = ext_resources[ref_id]["path"]
                                         # Merge sub-scene children into current node
                                         for child in sub_root.get("children", []):
                                             child["is_instantiated_child"] = True
@@ -206,17 +181,16 @@ def parse_tscn_text(
                             except Exception:
                                 pass
 
-    return {
-        "status": "success",
-        "root_node": tree_root,
-        "ext_resources": ext_resources,
-        "sub_resources": sub_resources,
-        "total_nodes": len(nodes),
-        "connections_count": len(connections),
-    }
+    return ok(
+        root_node=tree_root,
+        ext_resources=ext_resources,
+        sub_resources=sub_resources,
+        total_nodes=len(nodes),
+        connections_count=len(connections),
+    )
 
 
-def inspect_scene_engine(project_path: str, scene_path: str) -> Dict[str, Any]:
+def inspect_scene_engine(project_path: str, scene_path: str) -> dict[str, Any]:
     """Runs a headless Godot process to inspect instantiated scene node hierarchy and runtime info."""
     godot_bin = find_godot_executable()
     abs_project = os.path.abspath(project_path)
@@ -276,9 +250,7 @@ func serialize_node(node: Node) -> Dictionary:
 
     return data
 """
-    with tempfile.NamedTemporaryFile(
-        suffix=".gd", delete=False, mode="w", encoding="utf-8"
-    ) as tf:
+    with tempfile.NamedTemporaryFile(suffix=".gd", delete=False, mode="w", encoding="utf-8") as tf:
         tf.write(helper_code)
         temp_script_path = tf.name
 
@@ -294,15 +266,14 @@ func serialize_node(node: Node) -> Dictionary:
 
                 raw_json = line[len("SCENE_TREE_JSON:") :].strip()
                 parsed_root = json.loads(raw_json)
-                return {
-                    "status": "success",
-                    "mode": "engine",
-                    "scene_path": scene_path,
-                    "root_node": parsed_root,
-                }
-        return {"status": "error", "message": res.stdout or res.stderr}
+                return ok(
+                    mode="engine",
+                    scene_path=scene_path,
+                    root_node=parsed_root,
+                )
+        return err(res.stdout or res.stderr or "Failed to inspect scene via engine")
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return err(str(e))
     finally:
         if os.path.exists(temp_script_path):
             os.remove(temp_script_path)
@@ -310,7 +281,7 @@ func serialize_node(node: Node) -> Dictionary:
 
 def inspect_scene(
     project_path: str, scene_path: str, use_engine: bool = False, max_depth: int = 3
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Main entry point to inspect Godot .tscn files.
     Defaults to fast zero-dependency static parsing, with optional engine runtime fallback.
@@ -327,7 +298,7 @@ def inspect_scene(
             abs_scene = os.path.join(abs_project, scene_path)
 
     if not os.path.exists(abs_scene):
-        return {"status": "error", "message": f"Scene file not found at {abs_scene}"}
+        return err(f"Scene file not found at {abs_scene}")
 
     if use_engine:
         res_scene_path = (
@@ -338,7 +309,7 @@ def inspect_scene(
         return inspect_scene_engine(abs_project, res_scene_path)
 
     try:
-        with open(abs_scene, "r", encoding="utf-8", errors="ignore") as f:
+        with open(abs_scene, encoding="utf-8", errors="ignore") as f:
             content = f.read()
 
         parsed = parse_tscn_text(content, abs_project, max_depth=max_depth)
@@ -346,4 +317,4 @@ def inspect_scene(
         parsed["scene_path"] = scene_path
         return parsed
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return err(str(e))

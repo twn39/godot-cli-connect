@@ -3,6 +3,7 @@ Unit tests for operations modules
 """
 
 import subprocess
+
 from godot_cli_connect.operations.checker import check_syntax
 from godot_cli_connect.operations.inspector import inspect_project
 from godot_cli_connect.operations.script_runner import run_test_script

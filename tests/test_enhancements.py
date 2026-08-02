@@ -3,10 +3,10 @@ Unit tests for new enhancements: asset reimport, script attachment in scene crea
 """
 
 from typer.testing import CliRunner
+
+from godot_cli_connect.cli import app
 from godot_cli_connect.operations.resources import reimport_assets
 from godot_cli_connect.operations.scene_editor import create_scene
-from godot_cli_connect.operations.script_runner import run_test_script
-from godot_cli_connect.cli import app
 
 runner = CliRunner()
 

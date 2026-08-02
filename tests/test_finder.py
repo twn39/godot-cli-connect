@@ -3,9 +3,11 @@ Unit tests for finder module
 """
 
 import os
+
 import pytest
-from godot_cli_connect.finder import find_godot_executable
+
 from godot_cli_connect.exceptions import GodotNotFoundError
+from godot_cli_connect.finder import find_godot_executable
 
 
 def test_find_godot_executable_env(monkeypatch, tmp_path):

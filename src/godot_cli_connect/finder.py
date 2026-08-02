@@ -4,6 +4,7 @@ Godot Executable Finder Module
 
 import os
 import shutil
+
 from .exceptions import GodotNotFoundError
 
 

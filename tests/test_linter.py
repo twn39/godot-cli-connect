@@ -3,13 +3,14 @@ Unit and integration tests for linter module, format, and lint CLI commands
 """
 
 from typer.testing import CliRunner
+
+from godot_cli_connect.cli import app
 from godot_cli_connect.operations.linter import (
-    format_gdscript,
-    lint_gdscript,
     builtin_format_content,
     builtin_lint_content,
+    format_gdscript,
+    lint_gdscript,
 )
-from godot_cli_connect.cli import app
 
 runner = CliRunner()
 

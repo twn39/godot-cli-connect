@@ -3,12 +3,13 @@ Unit and integration tests for config_editor module and config-set / input-add C
 """
 
 from typer.testing import CliRunner
+
+from godot_cli_connect.cli import app
 from godot_cli_connect.operations.config_editor import (
+    add_input_action,
     parse_config_value,
     set_config_setting,
-    add_input_action,
 )
-from godot_cli_connect.cli import app
 
 runner = CliRunner()
 

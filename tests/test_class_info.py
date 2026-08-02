@@ -3,9 +3,11 @@ Unit and integration tests for class_info module and class-info CLI command
 """
 
 import json
+
 from typer.testing import CliRunner
-from godot_cli_connect.operations.class_info import get_class_info_json
+
 from godot_cli_connect.cli import app
+from godot_cli_connect.operations.class_info import get_class_info_json
 
 runner = CliRunner()
 

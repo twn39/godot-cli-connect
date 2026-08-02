@@ -3,9 +3,11 @@ Unit and integration tests for evaluator module and eval CLI command
 """
 
 import subprocess
+
 from typer.testing import CliRunner
-from godot_cli_connect.operations.evaluator import eval_code
+
 from godot_cli_connect.cli import app
+from godot_cli_connect.operations.evaluator import eval_code
 
 runner = CliRunner()
 

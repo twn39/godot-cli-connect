@@ -3,9 +3,11 @@ Unit tests for runner module
 """
 
 import subprocess
+
 import pytest
-from godot_cli_connect.operations.runner import build_godot_cmd, run_godot_cmd
+
 from godot_cli_connect.exceptions import GodotTimeoutError
+from godot_cli_connect.operations.runner import build_godot_cmd, run_godot_cmd
 
 
 def test_build_godot_cmd_default():

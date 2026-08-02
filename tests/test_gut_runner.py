@@ -3,12 +3,13 @@ Unit and integration tests for gut_runner module
 """
 
 from typer.testing import CliRunner
+
+from godot_cli_connect.cli import app
 from godot_cli_connect.operations.gut_runner import (
-    parse_junit_xml,
     parse_gut_stdout,
+    parse_junit_xml,
     run_gut_tests,
 )
-from godot_cli_connect.cli import app
 
 runner = CliRunner()
 

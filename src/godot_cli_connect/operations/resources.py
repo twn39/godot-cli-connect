@@ -2,17 +2,18 @@
 Godot Resource instantiation and asset reimporting module
 """
 
-import os
-import tempfile
 import base64
-from typing import Dict, Any
+import os
+from typing import Any
+
 from ..finder import find_godot_executable
-from .runner import run_godot_cmd, build_godot_cmd
+from ..models import err, ok
+from .runner import run_godot_script
 
 
 def create_resource(
     project_path: str, resource_type: str, save_path: str, properties_json: str = "{}"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Instantiates a Godot Resource class, applies properties safely via Base64, and saves to .tres."""
     godot_bin = find_godot_executable()
     abs_project = os.path.abspath(project_path)
@@ -56,34 +57,24 @@ func run_create() -> void:
     print("RES_SUCCESS:" + save_path + " ERR:" + str(err))
     quit()
 """
-    with tempfile.NamedTemporaryFile(
-        suffix=".gd", delete=False, mode="w", encoding="utf-8"
-    ) as tf:
-        tf.write(helper_code)
-        temp_script_path = tf.name
-
-    cmd = build_godot_cmd(
-        godot_bin, project_path=abs_project, headless=True, script=temp_script_path
-    )
 
     try:
-        res = run_godot_cmd(cmd, timeout=20)
+        res = run_godot_script(godot_bin, abs_project, helper_code, timeout=20)
         if res.returncode == 0 and "RES_SUCCESS" in res.stdout:
-            return {
-                "status": "success",
-                "save_path": save_path,
-                "message": f"Resource {resource_type} saved to {save_path}",
-            }
-        return {"status": "error", "message": res.stdout or res.stderr}
+            return ok(
+                message=f"Resource {resource_type} saved to {save_path}",
+                save_path=save_path,
+                mode="engine",
+            )
+        return err(res.stdout or res.stderr or "Failed to create resource")
     except Exception as e:
-        return {"status": "error", "message": str(e)}
-    finally:
-        if os.path.exists(temp_script_path):
-            os.remove(temp_script_path)
+        return err(str(e))
 
 
-def reimport_assets(project_path: str) -> Dict[str, Any]:
+def reimport_assets(project_path: str) -> dict[str, Any]:
     """Forces Godot to scan filesystem and reimport new/modified assets (PNG, SVG, WAV, etc.)."""
+    from .runner import build_godot_cmd, run_godot_cmd
+
     godot_bin = find_godot_executable()
     abs_project = os.path.abspath(project_path)
 
@@ -96,13 +87,20 @@ def reimport_assets(project_path: str) -> Dict[str, Any]:
 
     try:
         res = run_godot_cmd(cmd, timeout=30)
-        return {
-            "status": "success" if res.returncode == 0 else "failure",
-            "project_path": abs_project,
-            "message": "Filesystem scanned and assets reimported successfully.",
-            "stdout": res.stdout,
-            "returncode": res.returncode,
-        }
+        if res.returncode == 0:
+            return ok(
+                message="Filesystem scanned and assets reimported successfully.",
+                project_path=abs_project,
+                stdout=res.stdout,
+                returncode=res.returncode,
+                mode="engine",
+            )
+        return err(
+            f"Reimport finished with return code {res.returncode}",
+            status="failure",
+            project_path=abs_project,
+            stdout=res.stdout,
+            returncode=res.returncode,
+        )
     except Exception as e:
-        return {"status": "error", "message": str(e)}
-
+        return err(str(e))

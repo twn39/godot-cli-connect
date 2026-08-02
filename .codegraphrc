@@ -1,0 +1,7 @@
+{
+  "include": ["src", "tests"],
+  "exclude": ["demo", ".pytest_cache", ".ruff_cache", "__pycache__"],
+  "output": ".codegraph",
+  "languages": ["python"],
+  "cache": true
+}

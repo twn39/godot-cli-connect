@@ -6,11 +6,13 @@ import os
 import re
 import shutil
 import subprocess
-from typing import Dict, Any, List, Optional
+from typing import Any
+
+from ..models import err, ok
 from .checker import check_syntax
 
 
-def _find_formatter_tool() -> Optional[str]:
+def _find_formatter_tool() -> str | None:
     for tool in ["gdstyle", "gdformat"]:
         found = shutil.which(tool)
         if found:
@@ -18,7 +20,7 @@ def _find_formatter_tool() -> Optional[str]:
     return None
 
 
-def _find_linter_tool() -> Optional[str]:
+def _find_linter_tool() -> str | None:
     for tool in ["gdstyle", "gdlint"]:
         found = shutil.which(tool)
         if found:
@@ -46,7 +48,7 @@ def builtin_format_content(content: str) -> str:
     return result
 
 
-def builtin_lint_content(file_path: str, content: str) -> List[Dict[str, Any]]:
+def builtin_lint_content(file_path: str, content: str) -> list[dict[str, Any]]:
     """Builtin Python fallback GDScript linter for naming conventions and style."""
     diagnostics = []
     lines = content.splitlines()
@@ -131,7 +133,7 @@ def builtin_lint_content(file_path: str, content: str) -> List[Dict[str, Any]]:
 
 def format_gdscript(
     project_path: str, target: str = ".", check_only: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Formats GDScript files in the project or target path using external tools or builtin fallback."""
     abs_project = os.path.abspath(project_path)
     if target.startswith("res://"):
@@ -150,16 +152,26 @@ def format_gdscript(
             cmd.append("--check")
         cmd.append(abs_target)
         res = subprocess.run(cmd, capture_output=True, text=True)
-        return {
-            "status": "success"
-            if res.returncode == 0
-            else "formatting_required"
-            if check_only
-            else "error",
-            "tool_used": tool_name,
-            "stdout": res.stdout,
-            "stderr": res.stderr,
-        }
+        if res.returncode == 0:
+            return ok(
+                tool_used=tool_name,
+                stdout=res.stdout,
+                stderr=res.stderr,
+            )
+        if check_only:
+            return err(
+                "Formatting required",
+                status="formatting_required",
+                tool_used=tool_name,
+                stdout=res.stdout,
+                stderr=res.stderr,
+            )
+        return err(
+            res.stderr or res.stdout or "Formatter failed",
+            tool_used=tool_name,
+            stdout=res.stdout,
+            stderr=res.stderr,
+        )
 
     # Builtin Python fallback formatter
     target_files = []
@@ -178,7 +190,7 @@ def format_gdscript(
 
     for file_path in target_files:
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(file_path, encoding="utf-8", errors="ignore") as f:
                 content = f.read()
             formatted = builtin_format_content(content)
             if content != formatted:
@@ -192,26 +204,30 @@ def format_gdscript(
             pass
 
     if check_only:
-        status = "success" if not files_needing_format else "formatting_required"
-        message = (
-            "All files formatted."
-            if not files_needing_format
-            else f"{len(files_needing_format)} files require formatting."
+        if not files_needing_format:
+            return ok(
+                message="All files formatted.",
+                tool_used="builtin",
+                files_needing_format=files_needing_format,
+                scanned_files=len(target_files),
+            )
+        return err(
+            f"{len(files_needing_format)} files require formatting.",
+            status="formatting_required",
+            tool_used="builtin",
+            files_needing_format=files_needing_format,
+            scanned_files=len(target_files),
         )
-    else:
-        status = "success"
-        message = f"Formatted {formatted_count} files."
 
-    return {
-        "status": status,
-        "tool_used": "builtin",
-        "message": message,
-        "files_needing_format": files_needing_format,
-        "scanned_files": len(target_files),
-    }
+    return ok(
+        message=f"Formatted {formatted_count} files.",
+        tool_used="builtin",
+        files_needing_format=files_needing_format,
+        scanned_files=len(target_files),
+    )
 
 
-def lint_gdscript(project_path: str, target: str = ".") -> Dict[str, Any]:
+def lint_gdscript(project_path: str, target: str = ".") -> dict[str, Any]:
     """Runs static linting and engine syntax analysis across GDScript files."""
     abs_project = os.path.abspath(project_path)
     if target.startswith("res://"):
@@ -272,7 +288,7 @@ def lint_gdscript(project_path: str, target: str = ".") -> Dict[str, Any]:
 
         for file_path in target_files:
             try:
-                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                with open(file_path, encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 rel_path = os.path.relpath(file_path, abs_project)
                 file_diags = builtin_lint_content(rel_path, content)
@@ -281,11 +297,15 @@ def lint_gdscript(project_path: str, target: str = ".") -> Dict[str, Any]:
                 pass
 
     has_errors = any(d["severity"] == "error" for d in diagnostics)
-    status = "lint_errors_found" if has_errors else "success"
-
-    return {
-        "status": status,
+    payload = {
         "tool_used": tool_name,
         "total_diagnostics": len(diagnostics),
         "diagnostics": diagnostics,
     }
+    if has_errors:
+        return err(
+            "Lint errors found",
+            status="lint_errors_found",
+            **payload,
+        )
+    return ok(**payload)

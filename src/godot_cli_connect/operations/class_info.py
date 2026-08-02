@@ -2,16 +2,18 @@
 Godot ClassDB targeted inspection module
 """
 
-import os
-import json
-import tempfile
 import base64
-from typing import Dict, Any, Optional
+import json
+import os
+import tempfile
+from typing import Any
+
 from ..finder import find_godot_executable
-from .runner import run_godot_cmd, build_godot_cmd
+from ..models import err, ok
+from .runner import build_godot_cmd, run_godot_cmd
 
 
-def get_class_info_engine(class_name: str, project_path: str) -> Dict[str, Any]:
+def get_class_info_engine(class_name: str, project_path: str) -> dict[str, Any]:
     """Queries ClassDB in headless Godot runtime for class methods, properties, signals, and inheritance."""
     godot_bin = find_godot_executable()
     abs_project = os.path.abspath(project_path)
@@ -72,9 +74,7 @@ func run_query() -> void:
     quit()
 """
 
-    with tempfile.NamedTemporaryFile(
-        suffix=".gd", delete=False, mode="w", encoding="utf-8"
-    ) as tf:
+    with tempfile.NamedTemporaryFile(suffix=".gd", delete=False, mode="w", encoding="utf-8") as tf:
         tf.write(helper_code)
         temp_script_path = tf.name
 
@@ -88,27 +88,22 @@ func run_query() -> void:
             if line.startswith("CLASS_INFO_JSON:"):
                 raw_json = line[len("CLASS_INFO_JSON:") :].strip()
                 data = json.loads(raw_json)
-                return {"status": "success", "mode": "engine", "class_info": data}
-        return {
-            "status": "error",
-            "message": f"Class {class_name} not found or failed to query ClassDB",
-        }
+                return ok(mode="engine", class_info=data)
+        return err(f"Class {class_name} not found or failed to query ClassDB")
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return err(str(e))
     finally:
         if os.path.exists(temp_script_path):
             os.remove(temp_script_path)
 
 
-def get_class_info_json(
-    class_name: str, api_json_path: str
-) -> Optional[Dict[str, Any]]:
+def get_class_info_json(class_name: str, api_json_path: str) -> dict[str, Any] | None:
     """Fast local lookup of class details from dumped extension_api.json."""
     if not os.path.exists(api_json_path):
         return None
 
     try:
-        with open(api_json_path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(api_json_path, encoding="utf-8", errors="ignore") as f:
             data = json.load(f)
 
         classes = data.get("classes", [])
@@ -125,8 +120,7 @@ def get_class_info_json(
                         methods.append({"name": m_name, "args": args})
 
                 properties = [
-                    {"name": p.get("name"), "type": p.get("type")}
-                    for p in c.get("properties", [])
+                    {"name": p.get("name"), "type": p.get("type")} for p in c.get("properties", [])
                 ]
                 signals_list = [{"name": s.get("name")} for s in c.get("signals", [])]
 
@@ -143,7 +137,7 @@ def get_class_info_json(
     return None
 
 
-def get_class_info(class_name: str, project_path: str = ".") -> Dict[str, Any]:
+def get_class_info(class_name: str, project_path: str = ".") -> dict[str, Any]:
     """Targeted ClassDB inspection query for Godot 4 classes."""
     abs_project = os.path.abspath(project_path)
     api_json_path = os.path.join(abs_project, "extension_api.json")
@@ -151,7 +145,7 @@ def get_class_info(class_name: str, project_path: str = ".") -> Dict[str, Any]:
     # Try fast local lookup first
     cached_info = get_class_info_json(class_name, api_json_path)
     if cached_info:
-        return {"status": "success", "mode": "cache", "class_info": cached_info}
+        return ok(mode="cache", class_info=cached_info)
 
     # Fallback to runtime engine query
     return get_class_info_engine(class_name, abs_project)

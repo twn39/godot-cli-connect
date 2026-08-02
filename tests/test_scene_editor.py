@@ -3,13 +3,14 @@ Unit and integration tests for scene_editor module and create-scene / add-node /
 """
 
 from typer.testing import CliRunner
+
+from godot_cli_connect.cli import app
 from godot_cli_connect.operations.scene_editor import (
-    create_scene,
     add_node_to_scene,
+    create_scene,
     edit_node_in_scene,
     remove_node_from_scene,
 )
-from godot_cli_connect.cli import app
 
 runner = CliRunner()
 
@@ -170,8 +171,6 @@ def test_connect_and_disconnect_signal(tmp_path):
         connect_signal,
         disconnect_signal,
         inspect_signals,
-        rename_node,
-        reparent_node,
     )
 
     # Connect signal

@@ -3,6 +3,7 @@ Integration tests for CLI interface using Typer CliRunner
 """
 
 from typer.testing import CliRunner
+
 from godot_cli_connect.cli import app
 
 runner = CliRunner()

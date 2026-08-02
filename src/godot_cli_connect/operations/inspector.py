@@ -3,21 +3,20 @@ Project inspection and metadata extraction module
 """
 
 import os
-from typing import Dict, Any
+from typing import Any
+
+from ..models import err, ok
 
 
-def inspect_project(project_path: str) -> Dict[str, Any]:
+def inspect_project(project_path: str) -> dict[str, Any]:
     """Parses project.godot file and scans project directory for metadata."""
     abs_project = os.path.abspath(project_path)
     project_godot_path = os.path.join(abs_project, "project.godot")
 
     if not os.path.exists(project_godot_path):
-        return {
-            "status": "error",
-            "message": f"No project.godot found at {abs_project}",
-        }
+        return err(f"No project.godot found at {abs_project}")
 
-    meta: Dict[str, Any] = {
+    meta: dict[str, Any] = {
         "project_name": os.path.basename(abs_project),
         "config_version": None,
         "main_scene": None,
@@ -27,7 +26,7 @@ def inspect_project(project_path: str) -> Dict[str, Any]:
     }
 
     current_section = "global"
-    with open(project_godot_path, "r", encoding="utf-8", errors="ignore") as f:
+    with open(project_godot_path, encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith(";"):
@@ -38,7 +37,7 @@ def inspect_project(project_path: str) -> Dict[str, Any]:
             if "=" in line:
                 k, v = [part.strip() for part in line.split("=", 1)]
                 v_clean = v.strip('"')
-                if current_section == "global" or current_section == "application":
+                if current_section in ("global", "application"):
                     if k == "config_version":
                         meta["config_version"] = v_clean
                     elif k == "config/name":
@@ -71,13 +70,13 @@ def inspect_project(project_path: str) -> Dict[str, Any]:
             elif file.endswith(".tres"):
                 tres_count += 1
 
-    return {
-        "status": "success",
-        "project_path": abs_project,
-        "metadata": meta,
-        "stats": {
+    return ok(
+        mode="offline",
+        project_path=abs_project,
+        metadata=meta,
+        stats={
             "gd_scripts": gd_count,
             "scenes": tscn_count,
             "resources": tres_count,
         },
-    }
+    )

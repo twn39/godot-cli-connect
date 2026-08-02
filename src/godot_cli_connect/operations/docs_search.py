@@ -2,14 +2,16 @@
 Godot 4 official documentation search and GDScript code example retrieval module
 """
 
+import json
 import os
 import re
-import json
-from typing import Dict, Any, List
+from typing import Any
+
+from ..models import err, ok
 from .class_info import get_class_info
 
 # Preset GDScript usage code snippets for common Godot 4 nodes
-COMMON_NODE_SNIPPETS: Dict[str, str] = {
+COMMON_NODE_SNIPPETS: dict[str, str] = {
     "CharacterBody2D": """extends CharacterBody2D
 
 const SPEED = 300.0
@@ -72,7 +74,7 @@ def clean_bbcode(text: str) -> str:
     return text.strip()
 
 
-def search_docs(query: str, project_path: str = ".", limit: int = 5) -> Dict[str, Any]:
+def search_docs(query: str, project_path: str = ".", limit: int = 5) -> dict[str, Any]:
     """
     Searches Godot 4 official class documentation and retrieves GDScript code examples.
     """
@@ -80,12 +82,12 @@ def search_docs(query: str, project_path: str = ".", limit: int = 5) -> Dict[str
     abs_project = os.path.abspath(project_path)
     api_json_path = os.path.join(abs_project, "extension_api.json")
 
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
 
     # 1. Try local extension_api.json if present
     if os.path.exists(api_json_path):
         try:
-            with open(api_json_path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(api_json_path, encoding="utf-8", errors="ignore") as f:
                 data = json.load(f)
 
             for c in data.get("classes", []):
@@ -154,9 +156,12 @@ def search_docs(query: str, project_path: str = ".", limit: int = 5) -> Dict[str
     results.sort(key=lambda x: x["score"], reverse=True)
     final_results = results[:limit]
 
-    return {
-        "status": "success" if final_results else "not_found",
-        "query": query,
-        "total": len(final_results),
-        "results": final_results,
-    }
+    if final_results:
+        return ok(query=query, total=len(final_results), results=final_results)
+    return err(
+        f"No documentation matches for query: {query}",
+        status="not_found",
+        query=query,
+        total=0,
+        results=[],
+    )

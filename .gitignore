@@ -27,9 +27,14 @@ env/
 
 # Temporary generated artifacts & logs
 *.png
+!tests/fixtures/**/*.png
 godot_api.json
 extension_api.json
 *.log
+
+# Large ML models (download separately)
+*.onnx
+BiRefNet_lite_fp16.onnx
 
 # Codebase Knowledge Graph
 .codegraph/

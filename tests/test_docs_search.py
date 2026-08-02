@@ -3,9 +3,11 @@ Unit and integration tests for docs_search module and docs-search CLI command
 """
 
 import json
+
 from typer.testing import CliRunner
-from godot_cli_connect.operations.docs_search import clean_bbcode, search_docs
+
 from godot_cli_connect.cli import app
+from godot_cli_connect.operations.docs_search import clean_bbcode, search_docs
 
 runner = CliRunner()
 
