@@ -5,15 +5,18 @@ Offscreen screenshot capture module
 import os
 import sys
 import tempfile
+import base64
 from typing import Dict, Any
 from ..finder import find_godot_executable
-from .runner import run_godot_cmd
+from .runner import run_godot_cmd, build_godot_cmd
 
 def take_screenshot(project_path: str, output_path: str, wait_frames: int = 10) -> Dict[str, Any]:
     """Captures a screenshot of the project or main scene using offscreen rendering."""
     godot_bin = find_godot_executable()
     abs_project = os.path.abspath(project_path)
     abs_output = os.path.abspath(output_path)
+    
+    b64_output = base64.b64encode(abs_output.encode("utf-8")).decode("ascii")
     
     helper_code = f"""
 extends SceneTree
@@ -22,6 +25,7 @@ func _init() -> void:
     call_deferred("run_capture")
 
 func run_capture() -> void:
+    var save_path = Marshalls.base64_to_utf8("{b64_output}")
     var main_scene_path = ProjectSettings.get_setting("application/run/main_scene")
     if main_scene_path and ResourceLoader.exists(main_scene_path):
         var scn = load(main_scene_path).instantiate()
@@ -30,22 +34,20 @@ func run_capture() -> void:
         await process_frame
     await RenderingServer.frame_post_draw
     var img = root.get_viewport().get_texture().get_image()
-    img.save_png("{abs_output}")
-    print("SCREENSHOT_SAVED:{abs_output}")
+    img.save_png(save_path)
+    print("SCREENSHOT_SAVED:" + save_path)
     quit()
 """
     
-    temp_script_path = os.path.join(tempfile.gettempdir(), "_temp_godot_screenshot.gd")
-    with open(temp_script_path, "w", encoding="utf-8") as f:
-        f.write(helper_code)
+    with tempfile.NamedTemporaryFile(suffix=".gd", delete=False, mode="w", encoding="utf-8") as tf:
+        tf.write(helper_code)
+        temp_script_path = tf.name
 
-    cmd = [
-        godot_bin,
-        "--path", abs_project,
-        "-s", temp_script_path
-    ]
+    extra_flags = []
     if sys.platform != "darwin":
-        cmd.extend(["--display-driver", "offscreen"])
+        extra_flags.extend(["--display-driver", "offscreen"])
+
+    cmd = build_godot_cmd(godot_bin, project_path=abs_project, headless=False, script=temp_script_path, extra_flags=extra_flags)
 
     try:
         res = run_godot_cmd(cmd, timeout=20)
@@ -66,3 +68,4 @@ func run_capture() -> void:
     finally:
         if os.path.exists(temp_script_path):
             os.remove(temp_script_path)
+

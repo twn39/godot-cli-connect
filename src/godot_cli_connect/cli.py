@@ -8,6 +8,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 
+from rich.tree import Tree
 from .core import (
     check_syntax,
     take_screenshot,
@@ -18,8 +19,13 @@ from .core import (
     inspect_project,
     export_project,
     get_project_logs,
+    inspect_scene,
+    eval_code,
+    format_gdscript,
+    lint_gdscript,
 )
 from .finder import find_godot_executable
+
 
 app = typer.Typer(
     name="godot-cli",
@@ -27,6 +33,56 @@ app = typer.Typer(
     add_completion=False
 )
 console = Console()
+
+
+
+def _build_rich_tree(node: dict, parent_tree: Tree):
+    name = node.get("name", "Node")
+    type_name = node.get("type", "Node")
+    script = node.get("script_path")
+    groups = node.get("groups", [])
+    conns = node.get("connections", [])
+    
+    label = f"[bold green]{name}[/bold green] [cyan]({type_name})[/cyan]"
+    if script:
+        label += f" [yellow]📜 {script}[/yellow]"
+    if groups:
+        label += f" [magenta]🏷️ {groups}[/magenta]"
+    
+    branch = parent_tree.add(label)
+    
+    for conn in conns:
+        branch.add(f"[bold red]⚡ {conn.get('signal')} ➔ {conn.get('to')}.{conn.get('method')}()[/bold red]")
+        
+    for child in node.get("children", []):
+        _build_rich_tree(child, branch)
+
+
+@app.command("inspect-scene")
+def cmd_inspect_scene(
+    scene_path: str = typer.Argument(..., help="Path to Godot scene file (.tscn)"),
+    project: str = typer.Option(".", "--project", "-p", help="Path to Godot project directory"),
+    engine: bool = typer.Option(False, "--engine", help="Use headless Godot engine instantiation for runtime inspection"),
+    json_output: bool = typer.Option(False, "--json", help="Output raw JSON for LLM Agent parsing")
+):
+    """Inspect and visualize Godot .tscn scene file node hierarchy, scripts, and signals."""
+    res = inspect_scene(project, scene_path, use_engine=engine)
+    if json_output:
+        console.print_json(data=res)
+        return
+
+    if res["status"] == "success":
+        root = res.get("root_node")
+        if root:
+            tree = Tree(f"[bold magenta]📦 Scene:[/bold magenta] [underline]{res['scene_path']}[/underline] ([dim]mode: {res['mode']}[/dim])")
+            _build_rich_tree(root, tree)
+            console.print(tree)
+        else:
+            console.print("[yellow]Scene has no root node.[/yellow]")
+    else:
+        console.print(f"[bold red]✖ Scene inspection failed:[/bold red] {res.get('message')}")
+        raise typer.Exit(code=1)
+
 
 @app.command("info")
 def info():
@@ -224,12 +280,104 @@ def cmd_reimport(
         console.print_json(data=res)
         return
 
-    if res["status"] == "success":
-        console.print(f"[bold green]✔ Project filesystem scanned and assets reimported.[/bold green]")
-    else:
-        console.print(f"[bold red]✖ Asset reimport failed.[/bold red]")
+@app.command("eval")
+def cmd_eval(
+    code: Optional[str] = typer.Argument(None, help="GDScript code snippet or expression to evaluate"),
+    vars_json: str = typer.Option("{}", "--vars", "-v", help="JSON string of variable bindings (e.g. '{\"x\": 10}')"),
+    project: str = typer.Option(".", "--project", "-p", help="Path to Godot project directory"),
+    repl: bool = typer.Option(False, "--repl", help="Start interactive REPL terminal session"),
+    json_output: bool = typer.Option(False, "--json", help="Output raw JSON for LLM Agent parsing")
+):
+    """Dynamically evaluate GDScript expressions/code snippets or start REPL session."""
+    if repl:
+        console.print("[bold magenta]Godot GDScript REPL Terminal[/bold magenta] (type [bold cyan]'exit'[/bold cyan] or [bold cyan]'quit'[/bold cyan] to exit)")
+        while True:
+            try:
+                line = console.input("[bold green]gdscript>[/bold green] ")
+                if not line.strip():
+                    continue
+                if line.strip().lower() in ["exit", "quit"]:
+                    console.print("[dim]Exiting REPL.[/dim]")
+                    break
+                res = eval_code(project, line, vars_json=vars_json)
+                if res["status"] == "success":
+                    if res.get("result") is not None:
+                        console.print(f"[bold cyan]⇒ Result:[/bold cyan] {res['result']}")
+                    for stdout_line in res.get("stdout", []):
+                        console.print(f"[dim]{stdout_line}[/dim]")
+                else:
+                    console.print(f"[bold red]✖ Eval Error:[/bold red] {res.get('message')}")
+            except (KeyboardInterrupt, EOFError):
+                console.print("\n[dim]Exiting REPL.[/dim]")
+                break
+        return
+
+    if not code:
+        console.print("[bold red]✖ Error:[/bold red] Please provide code to evaluate or use --repl for interactive session.")
         raise typer.Exit(code=1)
+
+    res = eval_code(project, code, vars_json=vars_json)
+    if json_output:
+        console.print_json(data=res)
+        return
+
+    if res["status"] == "success":
+        console.print(f"[bold green]✔ Evaluation completed ({res['mode']} mode):[/bold green]")
+        if res.get("result") is not None:
+            console.print(Panel(f"[bold cyan]Result:[/bold cyan] {res['result']}", title="GDScript Eval"))
+        if res.get("stdout"):
+            console.print("[bold]Stdout:[/bold]")
+@app.command("format")
+def cmd_format(
+    target: str = typer.Argument(".", help="Target GDScript file or directory to format"),
+    project: str = typer.Option(".", "--project", "-p", help="Path to Godot project directory"),
+    check: bool = typer.Option(False, "--check", help="Check formatting without modifying files on disk"),
+    json_output: bool = typer.Option(False, "--json", help="Output raw JSON for LLM Agent parsing")
+):
+    """Format GDScript files according to Godot 4 style guidelines."""
+    res = format_gdscript(project, target=target, check_only=check)
+    if json_output:
+        console.print_json(data=res)
+        if res["status"] != "success":
+            raise typer.Exit(code=1)
+        return
+
+    if res["status"] == "success":
+        console.print(f"[bold green]✔ Formatting completed ([dim]tool: {res['tool_used']}[/dim]):[/bold green] {res.get('message', '')}")
+    else:
+        console.print(f"[bold yellow]⚠ Formatting required ([dim]tool: {res['tool_used']}[/dim]):[/bold yellow]")
+        for f in res.get("files_needing_format", []):
+            console.print(f"  [yellow]• {f}[/yellow]")
+        raise typer.Exit(code=1)
+
+
+@app.command("lint")
+def cmd_lint(
+    target: str = typer.Argument(".", help="Target GDScript file or directory to lint"),
+    project: str = typer.Option(".", "--project", "-p", help="Path to Godot project directory"),
+    json_output: bool = typer.Option(False, "--json", help="Output raw JSON for LLM Agent parsing")
+):
+    """Run static linting analysis and engine compile checks across GDScript files."""
+    res = lint_gdscript(project, target=target)
+    if json_output:
+        console.print_json(data=res)
+        if res["status"] != "success":
+            raise typer.Exit(code=1)
+        return
+
+    diags = res.get("diagnostics", [])
+    if res["status"] == "success" and not diags:
+        console.print(f"[bold green]✔ No lint errors or style warnings found ([dim]tool: {res['tool_used']}[/dim]).[/bold green]")
+    else:
+        console.print(f"[bold yellow]Diagnostics ({len(diags)} items found, [dim]tool: {res['tool_used']}[/dim]):[/bold yellow]")
+        for d in diags:
+            color = "red" if d["severity"] == "error" else "yellow"
+            console.print(f"  [{color}]• [{d['severity'].upper()}] {d['file']}:{d['line']}:{d['column']} ({d['code']}) - {d['message']}[/{color}]")
+        if res["status"] != "success":
+            raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
     app()
+
+

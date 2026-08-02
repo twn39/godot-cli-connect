@@ -11,6 +11,9 @@ from .operations.resources import create_resource, reimport_assets
 from .operations.inspector import inspect_project
 from .operations.exporter import export_project
 from .operations.logger import get_project_logs
+from .operations.scene_inspector import inspect_scene
+from .operations.evaluator import eval_code
+from .operations.linter import format_gdscript, lint_gdscript
 
 __all__ = [
     "_run_godot_cmd",
@@ -23,4 +26,11 @@ __all__ = [
     "inspect_project",
     "export_project",
     "get_project_logs",
+    "inspect_scene",
+    "eval_code",
+    "format_gdscript",
+    "lint_gdscript",
 ]
+
+
+

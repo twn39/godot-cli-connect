@@ -42,9 +42,12 @@ def inspect_project(project_path: str) -> Dict[str, Any]:
                         meta["config_version"] = v_clean
                     elif k == "config/name":
                         meta["project_name"] = v_clean
+                    elif k == "run/main_scene":
+                        meta["main_scene"] = v_clean
                 elif current_section == "application/run":
                     if k == "main_scene":
                         meta["main_scene"] = v_clean
+
                 elif current_section == "rendering/renderer/rendering_method":
                     meta["rendering_method"] = v_clean
                 elif current_section == "autoload":

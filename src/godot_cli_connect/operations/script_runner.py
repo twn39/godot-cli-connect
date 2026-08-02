@@ -5,7 +5,7 @@ GDScript test script execution module
 import os
 from typing import Dict, Any
 from ..finder import find_godot_executable
-from .runner import run_godot_cmd
+from .runner import run_godot_cmd, build_godot_cmd
 
 def run_test_script(project_path: str, script_path: str) -> Dict[str, Any]:
     """Runs a test GDScript file in headless mode."""
@@ -13,12 +13,8 @@ def run_test_script(project_path: str, script_path: str) -> Dict[str, Any]:
     abs_project = os.path.abspath(project_path)
     abs_script = os.path.abspath(script_path)
 
-    cmd = [
-        godot_bin,
-        "--path", abs_project,
-        "--headless",
-        "-s", abs_script
-    ]
+    cmd = build_godot_cmd(godot_bin, project_path=abs_project, headless=True, script=abs_script)
+
 
     try:
         res = run_godot_cmd(cmd, timeout=30)
