@@ -1,8 +1,8 @@
-# godot-cli-connect
+<div align="center">
 
-<p align="center">
-  <b>A high-performance Python CLI connecting AI Agents with Godot Engine 4.x</b>
-</p>
+# Godot CLI Connect
+
+<b>A High-Performance Python CLI Connecting AI Agents with Godot Engine 4.x</b>
 
 <p align="center">
   <a href="https://python.org"><img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python Version"></a>
@@ -11,6 +11,8 @@
   <a href="https://git-lfs.github.com"><img src="https://img.shields.io/badge/Git%20LFS-enabled-brightgreen.svg" alt="Git LFS"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"></a>
 </p>
+
+</div>
 
 ---
 
