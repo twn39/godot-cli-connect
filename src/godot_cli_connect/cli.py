@@ -30,9 +30,15 @@ from .core import (
     add_node_to_scene,
     edit_node_in_scene,
     remove_node_from_scene,
+    connect_signal,
+    disconnect_signal,
+    rename_node,
+    reparent_node,
+    inspect_signals,
     search_docs,
     compare_screenshots,
 )
+
 from .finder import find_godot_executable
 
 
@@ -915,6 +921,217 @@ def cmd_remove_node(
             f"[bold red]✖ Remove node failed:[/bold red] {res.get('message')}"
         )
         raise typer.Exit(code=1)
+
+
+@app.command("bind-signal")
+def cmd_bind_signal(
+    scene_path: str = typer.Argument(..., help="Path to target scene file (.tscn)"),
+    from_node: str = typer.Option(
+        ..., "--from", "-f", help="Source node emitting the signal (e.g. 'Button')"
+    ),
+    signal: str = typer.Option(
+        ..., "--signal", "-s", help="Signal name (e.g. 'pressed')"
+    ),
+    to_node: str = typer.Option(
+        ".", "--to", "-t", help="Target node receiving the signal (default: root '.')"
+    ),
+    method: str = typer.Option(
+        ..., "--method", "-m", help="Target handler method name (e.g. '_on_button_pressed')"
+    ),
+    deferred: bool = typer.Option(
+        False, "--deferred", help="Defer signal emission to idle frame (flags=1)"
+    ),
+    one_shot: bool = typer.Option(
+        False, "--one-shot", help="Automatically disconnect after first emission (flags=4)"
+    ),
+    flags: int = typer.Option(
+        0, "--flags", help="Custom bitmask ConnectFlags integer"
+    ),
+    binds: str = typer.Option(
+        "[]", "--binds", help="JSON array of extra bound arguments (e.g. '[\"arg1\", 100]')"
+    ),
+    project: str = typer.Option(
+        ".", "--project", "-p", help="Path to Godot project directory"
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output raw JSON for LLM Agent parsing"
+    ),
+):
+    """Bind/connect a GDScript signal from a source node to a target node method."""
+    res = connect_signal(
+        project,
+        scene_path,
+        from_node,
+        signal,
+        to_node,
+        method,
+        deferred=deferred,
+        one_shot=one_shot,
+        flags=flags,
+        binds_json=binds,
+    )
+    if json_output:
+        console.print_json(data=res)
+        if res["status"] != "success":
+            raise typer.Exit(code=1)
+        return
+
+    if res["status"] == "success":
+        console.print(
+            f"[bold green]✔ Signal connected ([dim]mode: {res['mode']}[/dim]):[/bold green] {from_node}.{signal} ➔ {to_node}.{method}()"
+        )
+    else:
+        console.print(
+            f"[bold red]✖ Signal connection failed:[/bold red] {res.get('message')}"
+        )
+        raise typer.Exit(code=1)
+
+
+@app.command("disconnect-signal")
+def cmd_disconnect_signal(
+    scene_path: str = typer.Argument(..., help="Path to target scene file (.tscn)"),
+    from_node: str = typer.Option(
+        ..., "--from", "-f", help="Source node emitting the signal (e.g. 'Button')"
+    ),
+    signal: str = typer.Option(
+        ..., "--signal", "-s", help="Signal name (e.g. 'pressed')"
+    ),
+    to_node: str = typer.Option(
+        ".", "--to", "-t", help="Target node receiving the signal (default: root '.')"
+    ),
+    method: str = typer.Option(
+        ..., "--method", "-m", help="Target handler method name (e.g. '_on_button_pressed')"
+    ),
+    project: str = typer.Option(
+        ".", "--project", "-p", help="Path to Godot project directory"
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output raw JSON for LLM Agent parsing"
+    ),
+):
+    """Disconnect an existing signal connection between nodes in a scene."""
+    res = disconnect_signal(project, scene_path, from_node, signal, to_node, method)
+    if json_output:
+        console.print_json(data=res)
+        if res["status"] != "success":
+            raise typer.Exit(code=1)
+        return
+
+    if res["status"] == "success":
+        console.print(
+            f"[bold green]✔ Signal disconnected ([dim]mode: {res['mode']}[/dim]):[/bold green] {from_node}.{signal} ➔ {to_node}.{method}()"
+        )
+    else:
+        console.print(
+            f"[bold red]✖ Signal disconnection failed:[/bold red] {res.get('message')}"
+        )
+        raise typer.Exit(code=1)
+
+
+@app.command("rename-node")
+def cmd_rename_node(
+    scene_path: str = typer.Argument(..., help="Path to target scene file (.tscn)"),
+    node: str = typer.Option(
+        ..., "--node", "-n", help="Target node path to rename (e.g. 'Button')"
+    ),
+    new_name: str = typer.Option(
+        ..., "--new-name", "-new", help="New name for the target node (e.g. 'SubmitButton')"
+    ),
+    project: str = typer.Option(
+        ".", "--project", "-p", help="Path to Godot project directory"
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output raw JSON for LLM Agent parsing"
+    ),
+):
+    """Rename an existing node in a .tscn scene file with cascading path updates."""
+    res = rename_node(project, scene_path, node, new_name)
+    if json_output:
+        console.print_json(data=res)
+        if res["status"] != "success":
+            raise typer.Exit(code=1)
+        return
+
+    if res["status"] == "success":
+        console.print(
+            f"[bold green]✔ Node renamed ([dim]mode: {res['mode']}[/dim]):[/bold green] {node} ➔ {new_name}"
+        )
+    else:
+        console.print(
+            f"[bold red]✖ Rename node failed:[/bold red] {res.get('message')}"
+        )
+        raise typer.Exit(code=1)
+
+
+@app.command("reparent-node")
+def cmd_reparent_node(
+    scene_path: str = typer.Argument(..., help="Path to target scene file (.tscn)"),
+    node: str = typer.Option(
+        ..., "--node", "-n", help="Target node path to reparent (e.g. 'Button')"
+    ),
+    new_parent: str = typer.Option(
+        ..., "--new-parent", "-np", help="New parent node path (e.g. 'UIContainer')"
+    ),
+    project: str = typer.Option(
+        ".", "--project", "-p", help="Path to Godot project directory"
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output raw JSON for LLM Agent parsing"
+    ),
+):
+    """Move/reparent a node to a new parent node in a .tscn scene tree."""
+    res = reparent_node(project, scene_path, node, new_parent)
+    if json_output:
+        console.print_json(data=res)
+        if res["status"] != "success":
+            raise typer.Exit(code=1)
+        return
+
+    if res["status"] == "success":
+        console.print(
+            f"[bold green]✔ Node reparented ([dim]mode: {res['mode']}[/dim]):[/bold green] {node} ➔ {new_parent}"
+        )
+    else:
+        console.print(
+            f"[bold red]✖ Reparent node failed:[/bold red] {res.get('message')}"
+        )
+        raise typer.Exit(code=1)
+
+
+@app.command("inspect-signals")
+def cmd_inspect_signals(
+    scene_path: str = typer.Argument(..., help="Path to target scene file (.tscn)"),
+    project: str = typer.Option(
+        ".", "--project", "-p", help="Path to Godot project directory"
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output raw JSON for LLM Agent parsing"
+    ),
+):
+    """Inspect and list all signal connections defined in a .tscn scene file."""
+    res = inspect_signals(project, scene_path)
+    if json_output:
+        console.print_json(data=res)
+        if res["status"] != "success":
+            raise typer.Exit(code=1)
+        return
+
+    if res["status"] == "success":
+        conns = res.get("connections", [])
+        console.print(
+            f"[bold magenta]⚡ Signal Connections in:[/bold magenta] {res['scene_path']} [dim]({res['connections_count']} total)[/dim]"
+        )
+        for c in conns:
+            flags_str = f" [dim](flags={c['flags']})[/dim]" if c.get("flags") else ""
+            console.print(
+                f"  • [green]{c['from']}[/green].[bold cyan]{c['signal']}[/bold cyan] ➔ [yellow]{c['to']}[/yellow].[bold method]{c['method']}[/bold method](){flags_str}"
+            )
+    else:
+        console.print(
+            f"[bold red]✖ Inspect signals failed:[/bold red] {res.get('message')}"
+        )
+        raise typer.Exit(code=1)
+
 
 
 @app.command("screenshot-diff")

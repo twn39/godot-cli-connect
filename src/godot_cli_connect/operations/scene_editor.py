@@ -600,3 +600,740 @@ func run_remove_node() -> void:
         "status": "error",
         "message": f"Failed to remove node {node_path} from scene {res_scene_path}",
     }
+
+
+def connect_signal_offline(
+    abs_scene: str,
+    from_node: str,
+    signal_name: str,
+    to_node: str,
+    method_name: str,
+    flags: int = 0,
+) -> bool:
+    """Fallback offline text-based .tscn signal connection adder."""
+    if not os.path.exists(abs_scene):
+        return False
+    try:
+        with open(abs_scene, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+
+        conn_str = f'signal="{signal_name}" from="{from_node}" to="{to_node}" method="{method_name}"'
+        for line in lines:
+            if line.strip().startswith("[connection") and conn_str in line:
+                return True  # Already connected
+
+        flags_attr = f' flags={flags}' if flags else ""
+        conn_line = f'[connection {conn_str}{flags_attr}]\n'
+        lines.append(f"\n{conn_line}")
+
+        with open(abs_scene, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+        return True
+    except Exception:
+        return False
+
+
+def connect_signal(
+    project_path: str,
+    scene_path: str,
+    from_node: str,
+    signal_name: str,
+    to_node: str,
+    method_name: str,
+    deferred: bool = False,
+    one_shot: bool = False,
+    flags: int = 0,
+    binds_json: str = "[]",
+) -> Dict[str, Any]:
+    """Connects a signal between nodes in a .tscn scene file."""
+    abs_project = os.path.abspath(project_path)
+    if scene_path.startswith("res://"):
+        rel_path = scene_path[6:]
+        abs_scene_path = os.path.join(abs_project, rel_path)
+        res_scene_path = scene_path
+    elif os.path.isabs(scene_path):
+        abs_scene_path = os.path.abspath(scene_path)
+        try:
+            res_scene_path = f"res://{os.path.relpath(abs_scene_path, abs_project)}"
+        except ValueError:
+            res_scene_path = f"res://{os.path.basename(abs_scene_path)}"
+    else:
+        abs_scene_path = os.path.abspath(os.path.join(abs_project, scene_path))
+        res_scene_path = f"res://{os.path.relpath(abs_scene_path, abs_project)}"
+
+    if not os.path.exists(abs_scene_path):
+        return {
+            "status": "error",
+            "message": f"Scene file not found at {abs_scene_path}",
+        }
+
+    total_flags = flags | (1 if deferred else 0) | (4 if one_shot else 0)
+
+    try:
+        godot_bin = find_godot_executable()
+        b64_scene = base64.b64encode(res_scene_path.encode("utf-8")).decode("ascii")
+        b64_from = base64.b64encode(from_node.encode("utf-8")).decode("ascii")
+        b64_signal = base64.b64encode(signal_name.encode("utf-8")).decode("ascii")
+        b64_to = base64.b64encode(to_node.encode("utf-8")).decode("ascii")
+        b64_method = base64.b64encode(method_name.encode("utf-8")).decode("ascii")
+        b64_binds = base64.b64encode(binds_json.encode("utf-8")).decode("ascii")
+
+        helper_code = f"""
+extends SceneTree
+
+func _init() -> void:
+    call_deferred("run_connect_signal")
+
+func set_owner_recursive(node: Node, owner_node: Node) -> void:
+    for child in node.get_children():
+        if child != owner_node:
+            child.owner = owner_node
+        set_owner_recursive(child, owner_node)
+
+func run_connect_signal() -> void:
+    var scn_path = Marshalls.base64_to_utf8("{b64_scene}")
+    var f_node = Marshalls.base64_to_utf8("{b64_from}")
+    var sig_name = Marshalls.base64_to_utf8("{b64_signal}")
+    var t_node = Marshalls.base64_to_utf8("{b64_to}")
+    var m_name = Marshalls.base64_to_utf8("{b64_method}")
+    var raw_binds = Marshalls.base64_to_utf8("{b64_binds}")
+
+    if not ResourceLoader.exists(scn_path):
+        print("SIG_CONN_ERR:Scene does not exist " + scn_path)
+        quit(1)
+        return
+
+    var scn_res = load(scn_path)
+    if not (scn_res is PackedScene):
+        print("SIG_CONN_ERR:Resource is not PackedScene " + scn_path)
+        quit(1)
+        return
+
+    var inst = scn_res.instantiate()
+    var src_node = inst if (f_node == "." or f_node == "") else inst.get_node_or_null(f_node)
+    var tgt_node = inst if (t_node == "." or t_node == "") else inst.get_node_or_null(t_node)
+
+    if src_node == null:
+        print("SIG_CONN_ERR:Source node not found " + f_node)
+        quit(1)
+        return
+
+    if tgt_node == null:
+        print("SIG_CONN_ERR:Target node not found " + t_node)
+        quit(1)
+        return
+
+    var callable_obj = Callable(tgt_node, m_name)
+    var parsed_binds = JSON.parse_string(raw_binds)
+    if parsed_binds != null and parsed_binds is Array and parsed_binds.size() > 0:
+        callable_obj = callable_obj.bindv(parsed_binds)
+
+    var connect_flags = 2 | {total_flags} # 2 == CONNECT_PERSIST
+    var err = src_node.connect(sig_name, callable_obj, connect_flags)
+    if err != OK and err != ERR_INVALID_PARAMETER:
+        print("SIG_CONN_ERR:Connect failed with code " + str(err))
+        quit(1)
+        return
+
+    set_owner_recursive(inst, inst)
+    var packed = PackedScene.new()
+    var pack_err = packed.pack(inst)
+    if pack_err != OK:
+        print("SIG_CONN_ERR:Pack error " + str(pack_err))
+        quit(1)
+        return
+
+    var save_err = ResourceSaver.save(packed, scn_path)
+    print("SIG_CONNECTED:ERR=" + str(save_err))
+    quit()
+"""
+        with tempfile.NamedTemporaryFile(
+            suffix=".gd", delete=False, mode="w", encoding="utf-8"
+        ) as tf:
+            tf.write(helper_code)
+            temp_script_path = tf.name
+
+        cmd = build_godot_cmd(
+            godot_bin, project_path=abs_project, headless=True, script=temp_script_path
+        )
+
+        try:
+            res = run_godot_cmd(cmd, timeout=20)
+            if "SIG_CONNECTED:ERR=0" in res.stdout:
+                return {
+                    "status": "success",
+                    "mode": "engine",
+                    "scene_path": res_scene_path,
+                    "from_node": from_node,
+                    "signal_name": signal_name,
+                    "to_node": to_node,
+                    "method_name": method_name,
+                    "flags": total_flags,
+                }
+        finally:
+            if os.path.exists(temp_script_path):
+                os.remove(temp_script_path)
+    except Exception:
+        pass
+
+    # Offline fallback
+    if connect_signal_offline(
+        abs_scene_path, from_node, signal_name, to_node, method_name, total_flags
+    ):
+        return {
+            "status": "success",
+            "mode": "offline",
+            "scene_path": res_scene_path,
+            "from_node": from_node,
+            "signal_name": signal_name,
+            "to_node": to_node,
+            "method_name": method_name,
+            "flags": total_flags,
+        }
+
+    return {
+        "status": "error",
+        "message": f"Failed to connect signal {signal_name} from {from_node} to {to_node}.{method_name}",
+    }
+
+
+def disconnect_signal_offline(
+    abs_scene: str,
+    from_node: str,
+    signal_name: str,
+    to_node: str,
+    method_name: str,
+) -> bool:
+    """Fallback offline text-based .tscn signal disconnection remover."""
+    if not os.path.exists(abs_scene):
+        return False
+    try:
+        with open(abs_scene, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+
+        conn_match = f'signal="{signal_name}" from="{from_node}" to="{to_node}" method="{method_name}"'
+        new_lines = [
+            line for line in lines if not (line.strip().startswith("[connection") and conn_match in line)
+        ]
+
+        with open(abs_scene, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+        return True
+    except Exception:
+        return False
+
+
+def disconnect_signal(
+    project_path: str,
+    scene_path: str,
+    from_node: str,
+    signal_name: str,
+    to_node: str,
+    method_name: str,
+) -> Dict[str, Any]:
+    """Disconnects a signal between nodes in a .tscn scene file."""
+    abs_project = os.path.abspath(project_path)
+    if scene_path.startswith("res://"):
+        rel_path = scene_path[6:]
+        abs_scene_path = os.path.join(abs_project, rel_path)
+        res_scene_path = scene_path
+    elif os.path.isabs(scene_path):
+        abs_scene_path = os.path.abspath(scene_path)
+        try:
+            res_scene_path = f"res://{os.path.relpath(abs_scene_path, abs_project)}"
+        except ValueError:
+            res_scene_path = f"res://{os.path.basename(abs_scene_path)}"
+    else:
+        abs_scene_path = os.path.abspath(os.path.join(abs_project, scene_path))
+        res_scene_path = f"res://{os.path.relpath(abs_scene_path, abs_project)}"
+
+    if not os.path.exists(abs_scene_path):
+        return {
+            "status": "error",
+            "message": f"Scene file not found at {abs_scene_path}",
+        }
+
+    try:
+        godot_bin = find_godot_executable()
+        b64_scene = base64.b64encode(res_scene_path.encode("utf-8")).decode("ascii")
+        b64_from = base64.b64encode(from_node.encode("utf-8")).decode("ascii")
+        b64_signal = base64.b64encode(signal_name.encode("utf-8")).decode("ascii")
+        b64_to = base64.b64encode(to_node.encode("utf-8")).decode("ascii")
+        b64_method = base64.b64encode(method_name.encode("utf-8")).decode("ascii")
+
+        helper_code = f"""
+extends SceneTree
+
+func _init() -> void:
+    call_deferred("run_disconnect_signal")
+
+func set_owner_recursive(node: Node, owner_node: Node) -> void:
+    for child in node.get_children():
+        if child != owner_node:
+            child.owner = owner_node
+        set_owner_recursive(child, owner_node)
+
+func run_disconnect_signal() -> void:
+    var scn_path = Marshalls.base64_to_utf8("{b64_scene}")
+    var f_node = Marshalls.base64_to_utf8("{b64_from}")
+    var sig_name = Marshalls.base64_to_utf8("{b64_signal}")
+    var t_node = Marshalls.base64_to_utf8("{b64_to}")
+    var m_name = Marshalls.base64_to_utf8("{b64_method}")
+
+    if not ResourceLoader.exists(scn_path):
+        print("SIG_DISC_ERR:Scene does not exist " + scn_path)
+        quit(1)
+        return
+
+    var scn_res = load(scn_path)
+    if not (scn_res is PackedScene):
+        print("SIG_DISC_ERR:Resource is not PackedScene " + scn_path)
+        quit(1)
+        return
+
+    var inst = scn_res.instantiate()
+    var src_node = inst if (f_node == "." or f_node == "") else inst.get_node_or_null(f_node)
+    var tgt_node = inst if (t_node == "." or t_node == "") else inst.get_node_or_null(t_node)
+
+    if src_node != null and tgt_node != null:
+        var callable_obj = Callable(tgt_node, m_name)
+        if src_node.is_connected(sig_name, callable_obj):
+            src_node.disconnect(sig_name, callable_obj)
+
+    set_owner_recursive(inst, inst)
+    var packed = PackedScene.new()
+    var pack_err = packed.pack(inst)
+    if pack_err != OK:
+        print("SIG_DISC_ERR:Pack error " + str(pack_err))
+        quit(1)
+        return
+
+    var save_err = ResourceSaver.save(packed, scn_path)
+    print("SIG_DISCONNECTED:ERR=" + str(save_err))
+    quit()
+"""
+        with tempfile.NamedTemporaryFile(
+            suffix=".gd", delete=False, mode="w", encoding="utf-8"
+        ) as tf:
+            tf.write(helper_code)
+            temp_script_path = tf.name
+
+        cmd = build_godot_cmd(
+            godot_bin, project_path=abs_project, headless=True, script=temp_script_path
+        )
+
+        try:
+            res = run_godot_cmd(cmd, timeout=20)
+            if "SIG_DISCONNECTED:ERR=0" in res.stdout:
+                return {
+                    "status": "success",
+                    "mode": "engine",
+                    "scene_path": res_scene_path,
+                    "from_node": from_node,
+                    "signal_name": signal_name,
+                    "to_node": to_node,
+                    "method_name": method_name,
+                }
+        finally:
+            if os.path.exists(temp_script_path):
+                os.remove(temp_script_path)
+    except Exception:
+        pass
+
+    # Offline fallback
+    if disconnect_signal_offline(
+        abs_scene_path, from_node, signal_name, to_node, method_name
+    ):
+        return {
+            "status": "success",
+            "mode": "offline",
+            "scene_path": res_scene_path,
+            "from_node": from_node,
+            "signal_name": signal_name,
+            "to_node": to_node,
+            "method_name": method_name,
+        }
+
+    return {
+        "status": "error",
+        "message": f"Failed to disconnect signal {signal_name} from {from_node} to {to_node}.{method_name}",
+    }
+
+
+def rename_node_offline(abs_scene: str, old_name: str, new_name: str) -> bool:
+    """Fallback offline text-based .tscn node renamer with cascading path updates."""
+    if not os.path.exists(abs_scene):
+        return False
+    try:
+        with open(abs_scene, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+
+        new_lines = []
+        for line in lines:
+            s_line = line
+            if s_line.startswith("[node "):
+                s_line = s_line.replace(f'name="{old_name}"', f'name="{new_name}"')
+                s_line = s_line.replace(f'parent="{old_name}"', f'parent="{new_name}"')
+                s_line = s_line.replace(f'parent="{old_name}/', f'parent="{new_name}/')
+            elif s_line.startswith("[connection "):
+                s_line = s_line.replace(f'from="{old_name}"', f'from="{new_name}"')
+                s_line = s_line.replace(f'from="{old_name}/', f'from="{new_name}/')
+                s_line = s_line.replace(f'to="{old_name}"', f'to="{new_name}"')
+                s_line = s_line.replace(f'to="{old_name}/', f'to="{new_name}/')
+            new_lines.append(s_line)
+
+        with open(abs_scene, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+        return True
+    except Exception:
+        return False
+
+
+def rename_node(
+    project_path: str,
+    scene_path: str,
+    node_path: str,
+    new_name: str,
+) -> Dict[str, Any]:
+    """Renames an existing node in a .tscn scene file with cascading path updates."""
+    abs_project = os.path.abspath(project_path)
+    if scene_path.startswith("res://"):
+        rel_path = scene_path[6:]
+        abs_scene_path = os.path.join(abs_project, rel_path)
+        res_scene_path = scene_path
+    elif os.path.isabs(scene_path):
+        abs_scene_path = os.path.abspath(scene_path)
+        try:
+            res_scene_path = f"res://{os.path.relpath(abs_scene_path, abs_project)}"
+        except ValueError:
+            res_scene_path = f"res://{os.path.basename(abs_scene_path)}"
+    else:
+        abs_scene_path = os.path.abspath(os.path.join(abs_project, scene_path))
+        res_scene_path = f"res://{os.path.relpath(abs_scene_path, abs_project)}"
+
+    if not os.path.exists(abs_scene_path):
+        return {
+            "status": "error",
+            "message": f"Scene file not found at {abs_scene_path}",
+        }
+
+    old_leaf_name = os.path.basename(node_path.rstrip("/"))
+
+    try:
+        godot_bin = find_godot_executable()
+        b64_scene = base64.b64encode(res_scene_path.encode("utf-8")).decode("ascii")
+        b64_node = base64.b64encode(node_path.encode("utf-8")).decode("ascii")
+        b64_new = base64.b64encode(new_name.encode("utf-8")).decode("ascii")
+
+        helper_code = f"""
+extends SceneTree
+
+func _init() -> void:
+    call_deferred("run_rename_node")
+
+func set_owner_recursive(node: Node, owner_node: Node) -> void:
+    for child in node.get_children():
+        if child != owner_node:
+            child.owner = owner_node
+        set_owner_recursive(child, owner_node)
+
+func run_rename_node() -> void:
+    var scn_path = Marshalls.base64_to_utf8("{b64_scene}")
+    var n_path = Marshalls.base64_to_utf8("{b64_node}")
+    var n_new = Marshalls.base64_to_utf8("{b64_new}")
+
+    if not ResourceLoader.exists(scn_path):
+        print("NODE_RENAME_ERR:Scene does not exist " + scn_path)
+        quit(1)
+        return
+
+    var scn_res = load(scn_path)
+    if not (scn_res is PackedScene):
+        print("NODE_RENAME_ERR:Resource is not PackedScene " + scn_path)
+        quit(1)
+        return
+
+    var inst = scn_res.instantiate()
+    var target_node = inst if (n_path == "." or n_path == "") else inst.get_node_or_null(n_path)
+
+    if target_node == null:
+        print("NODE_RENAME_ERR:Target node not found " + n_path)
+        quit(1)
+        return
+
+    target_node.name = n_new
+    set_owner_recursive(inst, inst)
+
+    var packed = PackedScene.new()
+    var pack_err = packed.pack(inst)
+    if pack_err != OK:
+        print("NODE_RENAME_ERR:Pack error " + str(pack_err))
+        quit(1)
+        return
+
+    var save_err = ResourceSaver.save(packed, scn_path)
+    print("NODE_RENAMED:ERR=" + str(save_err))
+    quit()
+"""
+        with tempfile.NamedTemporaryFile(
+            suffix=".gd", delete=False, mode="w", encoding="utf-8"
+        ) as tf:
+            tf.write(helper_code)
+            temp_script_path = tf.name
+
+        cmd = build_godot_cmd(
+            godot_bin, project_path=abs_project, headless=True, script=temp_script_path
+        )
+
+        try:
+            res = run_godot_cmd(cmd, timeout=20)
+            if "NODE_RENAMED:ERR=0" in res.stdout:
+                return {
+                    "status": "success",
+                    "mode": "engine",
+                    "scene_path": res_scene_path,
+                    "old_node_path": node_path,
+                    "new_name": new_name,
+                }
+        finally:
+            if os.path.exists(temp_script_path):
+                os.remove(temp_script_path)
+    except Exception:
+        pass
+
+    # Offline fallback
+    if rename_node_offline(abs_scene_path, old_leaf_name, new_name):
+        return {
+            "status": "success",
+            "mode": "offline",
+            "scene_path": res_scene_path,
+            "old_node_path": node_path,
+            "new_name": new_name,
+        }
+
+    return {
+        "status": "error",
+        "message": f"Failed to rename node {node_path} to {new_name} in scene {res_scene_path}",
+    }
+
+
+def reparent_node_offline(abs_scene: str, node_name: str, new_parent: str) -> bool:
+    """Fallback offline text-based .tscn node reparenter."""
+    if not os.path.exists(abs_scene):
+        return False
+    try:
+        with open(abs_scene, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+
+        new_lines = []
+        for line in lines:
+            s_line = line
+            if s_line.startswith("[node ") and f'name="{node_name}"' in s_line:
+                # Update parent attribute
+                import re
+
+                if 'parent="' in s_line:
+                    s_line = re.sub(r'parent="[^"]*"', f'parent="{new_parent}"', s_line)
+                else:
+                    s_line = s_line.rstrip("]\n") + f' parent="{new_parent}"]\n'
+            new_lines.append(s_line)
+
+        with open(abs_scene, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+        return True
+    except Exception:
+        return False
+
+
+def reparent_node(
+    project_path: str,
+    scene_path: str,
+    node_path: str,
+    new_parent_path: str,
+) -> Dict[str, Any]:
+    """Reparents a node to a new parent in a .tscn scene file."""
+    abs_project = os.path.abspath(project_path)
+    if scene_path.startswith("res://"):
+        rel_path = scene_path[6:]
+        abs_scene_path = os.path.join(abs_project, rel_path)
+        res_scene_path = scene_path
+    elif os.path.isabs(scene_path):
+        abs_scene_path = os.path.abspath(scene_path)
+        try:
+            res_scene_path = f"res://{os.path.relpath(abs_scene_path, abs_project)}"
+        except ValueError:
+            res_scene_path = f"res://{os.path.basename(abs_scene_path)}"
+    else:
+        abs_scene_path = os.path.abspath(os.path.join(abs_project, scene_path))
+        res_scene_path = f"res://{os.path.relpath(abs_scene_path, abs_project)}"
+
+    if not os.path.exists(abs_scene_path):
+        return {
+            "status": "error",
+            "message": f"Scene file not found at {abs_scene_path}",
+        }
+
+    leaf_node_name = os.path.basename(node_path.rstrip("/"))
+
+    try:
+        godot_bin = find_godot_executable()
+        b64_scene = base64.b64encode(res_scene_path.encode("utf-8")).decode("ascii")
+        b64_node = base64.b64encode(node_path.encode("utf-8")).decode("ascii")
+        b64_parent = base64.b64encode(new_parent_path.encode("utf-8")).decode("ascii")
+
+        helper_code = f"""
+extends SceneTree
+
+func _init() -> void:
+    call_deferred("run_reparent_node")
+
+func set_owner_recursive(node: Node, owner_node: Node) -> void:
+    for child in node.get_children():
+        if child != owner_node:
+            child.owner = owner_node
+        set_owner_recursive(child, owner_node)
+
+func run_reparent_node() -> void:
+    var scn_path = Marshalls.base64_to_utf8("{b64_scene}")
+    var n_path = Marshalls.base64_to_utf8("{b64_node}")
+    var p_path = Marshalls.base64_to_utf8("{b64_parent}")
+
+    if not ResourceLoader.exists(scn_path):
+        print("NODE_REPARENT_ERR:Scene does not exist " + scn_path)
+        quit(1)
+        return
+
+    var scn_res = load(scn_path)
+    if not (scn_res is PackedScene):
+        print("NODE_REPARENT_ERR:Resource is not PackedScene " + scn_path)
+        quit(1)
+        return
+
+    var inst = scn_res.instantiate()
+    var target_node = inst.get_node_or_null(n_path)
+    var parent_node = inst if (p_path == "." or p_path == "") else inst.get_node_or_null(p_path)
+
+    if target_node == null:
+        print("NODE_REPARENT_ERR:Target node not found " + n_path)
+        quit(1)
+        return
+
+    if parent_node == null:
+        print("NODE_REPARENT_ERR:New parent node not found " + p_path)
+        quit(1)
+        return
+
+    target_node.reparent(parent_node)
+    set_owner_recursive(inst, inst)
+
+    var packed = PackedScene.new()
+    var pack_err = packed.pack(inst)
+    if pack_err != OK:
+        print("NODE_REPARENT_ERR:Pack error " + str(pack_err))
+        quit(1)
+        return
+
+    var save_err = ResourceSaver.save(packed, scn_path)
+    print("NODE_REPARENTED:ERR=" + str(save_err))
+    quit()
+"""
+        with tempfile.NamedTemporaryFile(
+            suffix=".gd", delete=False, mode="w", encoding="utf-8"
+        ) as tf:
+            tf.write(helper_code)
+            temp_script_path = tf.name
+
+        cmd = build_godot_cmd(
+            godot_bin, project_path=abs_project, headless=True, script=temp_script_path
+        )
+
+        try:
+            res = run_godot_cmd(cmd, timeout=20)
+            if "NODE_REPARENTED:ERR=0" in res.stdout:
+                return {
+                    "status": "success",
+                    "mode": "engine",
+                    "scene_path": res_scene_path,
+                    "node_path": node_path,
+                    "new_parent_path": new_parent_path,
+                }
+        finally:
+            if os.path.exists(temp_script_path):
+                os.remove(temp_script_path)
+    except Exception:
+        pass
+
+    # Offline fallback
+    if reparent_node_offline(abs_scene_path, leaf_node_name, new_parent_path):
+        return {
+            "status": "success",
+            "mode": "offline",
+            "scene_path": res_scene_path,
+            "node_path": node_path,
+            "new_parent_path": new_parent_path,
+        }
+
+    return {
+        "status": "error",
+        "message": f"Failed to reparent node {node_path} to {new_parent_path} in scene {res_scene_path}",
+    }
+
+
+def inspect_signals(
+    project_path: str,
+    scene_path: str,
+) -> Dict[str, Any]:
+    """Inspects and returns all signal connections defined in a .tscn scene file."""
+    abs_project = os.path.abspath(project_path)
+    if scene_path.startswith("res://"):
+        rel_path = scene_path[6:]
+        abs_scene_path = os.path.join(abs_project, rel_path)
+        res_scene_path = scene_path
+    elif os.path.isabs(scene_path):
+        abs_scene_path = os.path.abspath(scene_path)
+        try:
+            res_scene_path = f"res://{os.path.relpath(abs_scene_path, abs_project)}"
+        except ValueError:
+            res_scene_path = f"res://{os.path.basename(abs_scene_path)}"
+    else:
+        abs_scene_path = os.path.abspath(os.path.join(abs_project, scene_path))
+        res_scene_path = f"res://{os.path.relpath(abs_scene_path, abs_project)}"
+
+    if not os.path.exists(abs_scene_path):
+        return {
+            "status": "error",
+            "message": f"Scene file not found at {abs_scene_path}",
+        }
+
+    connections = []
+    try:
+        import re
+
+        with open(abs_scene_path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line_str = line.strip()
+                if line_str.startswith("[connection "):
+                    sig = re.search(r'signal="([^"]+)"', line_str)
+                    from_n = re.search(r'from="([^"]+)"', line_str)
+                    to_n = re.search(r'to="([^"]+)"', line_str)
+                    mth = re.search(r'method="([^"]+)"', line_str)
+                    flg = re.search(r'flags=(\d+)', line_str)
+
+                    if sig and from_n and to_n and mth:
+                        connections.append({
+                            "signal": sig.group(1),
+                            "from": from_n.group(1),
+                            "to": to_n.group(1),
+                            "method": mth.group(1),
+                            "flags": int(flg.group(1)) if flg else 0,
+                        })
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+    return {
+        "status": "success",
+        "scene_path": res_scene_path,
+        "connections_count": len(connections),
+        "connections": connections,
+    }
+

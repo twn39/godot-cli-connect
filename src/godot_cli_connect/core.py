@@ -22,6 +22,11 @@ from .operations.scene_editor import (
     add_node_to_scene,
     edit_node_in_scene,
     remove_node_from_scene,
+    connect_signal,
+    disconnect_signal,
+    rename_node,
+    reparent_node,
+    inspect_signals,
 )
 from .operations.docs_search import search_docs
 from .operations.screenshot_diff import compare_screenshots
@@ -49,6 +54,12 @@ __all__ = [
     "add_node_to_scene",
     "edit_node_in_scene",
     "remove_node_from_scene",
+    "connect_signal",
+    "disconnect_signal",
+    "rename_node",
+    "reparent_node",
+    "inspect_signals",
     "search_docs",
     "compare_screenshots",
 ]
+
