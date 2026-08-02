@@ -2,17 +2,17 @@
 Integration tests for CLI interface using Typer CliRunner
 """
 
-import subprocess
 from typer.testing import CliRunner
 from godot_cli_connect.cli import app
 
 runner = CliRunner()
 
+
 def test_cli_info_found(monkeypatch, tmp_path):
     fake_godot = tmp_path / "godot"
     fake_godot.touch()
     monkeypatch.setenv("GODOT_PATH", str(fake_godot))
-    
+
     res = runner.invoke(app, ["info"])
     assert res.exit_code == 0
     assert "Godot Binary Found" in res.stdout

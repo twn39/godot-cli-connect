@@ -18,8 +18,11 @@ def test_eval_code_expression_success(monkeypatch, tmp_path):
     mock_stdout = """EVAL_MODE:expression
 EVAL_RESULT:5
 """
+
     def mock_run(cmd, capture_output, text, timeout):
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=mock_stdout, stderr="")
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout=mock_stdout, stderr=""
+        )
 
     monkeypatch.setattr(subprocess, "run", mock_run)
     res = eval_code(str(tmp_path), "Vector2(0, 0).distance_to(Vector2(3, 4))")
@@ -37,8 +40,11 @@ def test_eval_code_with_vars(monkeypatch, tmp_path):
     mock_stdout = """EVAL_MODE:expression
 EVAL_RESULT:30
 """
+
     def mock_run(cmd, capture_output, text, timeout):
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=mock_stdout, stderr="")
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout=mock_stdout, stderr=""
+        )
 
     monkeypatch.setattr(subprocess, "run", mock_run)
     res = eval_code(str(tmp_path), "x * y + 10", vars_json='{"x": 5, "y": 4}')
@@ -55,11 +61,16 @@ def test_cli_eval_cmd_json(monkeypatch, tmp_path):
     mock_stdout = """EVAL_MODE:expression
 EVAL_RESULT:"Hello World"
 """
+
     def mock_run(cmd, capture_output, text, timeout):
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=mock_stdout, stderr="")
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout=mock_stdout, stderr=""
+        )
 
     monkeypatch.setattr(subprocess, "run", mock_run)
-    res = runner.invoke(app, ["eval", "str('Hello World')", "-p", str(tmp_path), "--json"])
+    res = runner.invoke(
+        app, ["eval", "str('Hello World')", "-p", str(tmp_path), "--json"]
+    )
 
     assert res.exit_code == 0
     assert '"status": "success"' in res.stdout

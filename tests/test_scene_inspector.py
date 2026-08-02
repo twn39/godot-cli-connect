@@ -2,7 +2,6 @@
 Unit and integration tests for scene_inspector module
 """
 
-import os
 from typer.testing import CliRunner
 from godot_cli_connect.operations.scene_inspector import inspect_scene, parse_tscn_text
 from godot_cli_connect.cli import app
@@ -65,7 +64,6 @@ def test_parse_tscn_text(tmp_path):
     assert "BulletPoint" in sub_child_names
 
 
-
 def test_inspect_scene_file_not_found(tmp_path):
     res = inspect_scene(str(tmp_path), "non_existent.tscn")
     assert res["status"] == "error"
@@ -76,7 +74,9 @@ def test_cli_inspect_scene_cmd(tmp_path):
     scene_file = tmp_path / "main.tscn"
     scene_file.write_text(SAMPLE_TSCN)
 
-    res = runner.invoke(app, ["inspect-scene", str(scene_file), "-p", str(tmp_path), "--json"])
+    res = runner.invoke(
+        app, ["inspect-scene", str(scene_file), "-p", str(tmp_path), "--json"]
+    )
     assert res.exit_code == 0
     assert '"status": "success"' in res.stdout
     assert '"name": "Main"' in res.stdout

@@ -6,6 +6,7 @@ import os
 import shutil
 from .exceptions import GodotNotFoundError
 
+
 def find_godot_executable() -> str:
     """Finds the Godot 4 executable binary on macOS, Linux, or Windows."""
     env_path = os.environ.get("GODOT_PATH")
@@ -27,5 +28,6 @@ def find_godot_executable() -> str:
         if found:
             return found
 
-    raise GodotNotFoundError("Godot 4 executable not found. Please set the GODOT_PATH environment variable.")
-
+    raise GodotNotFoundError(
+        "Godot 4 executable not found. Please set the GODOT_PATH environment variable."
+    )

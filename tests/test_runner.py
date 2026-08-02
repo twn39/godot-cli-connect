@@ -21,7 +21,7 @@ def test_build_godot_cmd_full():
         editor=True,
         quit_after=True,
         script="main.gd",
-        extra_flags=["--debug"]
+        extra_flags=["--debug"],
     )
     assert "/bin/godot" in cmd
     assert "--path" in cmd
@@ -36,7 +36,7 @@ def test_build_godot_cmd_full():
 def test_run_godot_cmd_timeout(monkeypatch):
     def mock_run(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout"))
-    
+
     monkeypatch.setattr(subprocess, "run", mock_run)
     with pytest.raises(GodotTimeoutError):
         run_godot_cmd(["godot", "--headless"], timeout=5)

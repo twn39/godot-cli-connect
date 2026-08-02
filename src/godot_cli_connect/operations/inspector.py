@@ -5,15 +5,16 @@ Project inspection and metadata extraction module
 import os
 from typing import Dict, Any
 
+
 def inspect_project(project_path: str) -> Dict[str, Any]:
     """Parses project.godot file and scans project directory for metadata."""
     abs_project = os.path.abspath(project_path)
     project_godot_path = os.path.join(abs_project, "project.godot")
-    
+
     if not os.path.exists(project_godot_path):
         return {
             "status": "error",
-            "message": f"No project.godot found at {abs_project}"
+            "message": f"No project.godot found at {abs_project}",
         }
 
     meta: Dict[str, Any] = {
@@ -22,7 +23,7 @@ def inspect_project(project_path: str) -> Dict[str, Any]:
         "main_scene": None,
         "rendering_method": None,
         "autoloads": {},
-        "plugins": []
+        "plugins": [],
     }
 
     current_section = "global"
@@ -77,6 +78,6 @@ def inspect_project(project_path: str) -> Dict[str, Any]:
         "stats": {
             "gd_scripts": gd_count,
             "scenes": tscn_count,
-            "resources": tres_count
-        }
+            "resources": tres_count,
+        },
     }

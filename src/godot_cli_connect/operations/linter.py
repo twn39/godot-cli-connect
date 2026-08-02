@@ -67,61 +67,71 @@ def builtin_lint_content(file_path: str, content: str) -> List[Dict[str, Any]]:
     for idx, line in enumerate(lines, start=1):
         # Line length check
         if len(line) > 120:
-            diagnostics.append({
-                "file": file_path,
-                "line": idx,
-                "column": 1,
-                "severity": "warning",
-                "code": "style/line_length",
-                "message": f"Line exceeds 120 characters ({len(line)} chars)"
-            })
+            diagnostics.append(
+                {
+                    "file": file_path,
+                    "line": idx,
+                    "column": 1,
+                    "severity": "warning",
+                    "code": "style/line_length",
+                    "message": f"Line exceeds 120 characters ({len(line)} chars)",
+                }
+            )
 
         # Check func name
         f_match = func_re.search(line)
         if f_match:
             fn_name = f_match.group(1)
             if not is_snake_case(fn_name):
-                diagnostics.append({
-                    "file": file_path,
-                    "line": idx,
-                    "column": f_match.start(1) + 1,
-                    "severity": "warning",
-                    "code": "style/naming_convention",
-                    "message": f"Function name '{fn_name}' should be snake_case"
-                })
+                diagnostics.append(
+                    {
+                        "file": file_path,
+                        "line": idx,
+                        "column": f_match.start(1) + 1,
+                        "severity": "warning",
+                        "code": "style/naming_convention",
+                        "message": f"Function name '{fn_name}' should be snake_case",
+                    }
+                )
 
         # Check const name
         c_match = const_re.search(line)
         if c_match:
             cn_name = c_match.group(1)
             if not is_upper_snake_case(cn_name):
-                diagnostics.append({
-                    "file": file_path,
-                    "line": idx,
-                    "column": c_match.start(1) + 1,
-                    "severity": "warning",
-                    "code": "style/naming_convention",
-                    "message": f"Constant name '{cn_name}' should be UPPER_SNAKE_CASE"
-                })
+                diagnostics.append(
+                    {
+                        "file": file_path,
+                        "line": idx,
+                        "column": c_match.start(1) + 1,
+                        "severity": "warning",
+                        "code": "style/naming_convention",
+                        "message": f"Constant name '{cn_name}' should be UPPER_SNAKE_CASE",
+                    }
+                )
 
         # Check class_name
         cls_match = class_name_re.search(line)
         if cls_match:
             cls_name = cls_match.group(1)
             if not is_pascal_case(cls_name):
-                diagnostics.append({
-                    "file": file_path,
-                    "line": idx,
-                    "column": cls_match.start(1) + 1,
-                    "severity": "warning",
-                    "code": "style/naming_convention",
-                    "message": f"Class name '{cls_name}' should be PascalCase"
-                })
+                diagnostics.append(
+                    {
+                        "file": file_path,
+                        "line": idx,
+                        "column": cls_match.start(1) + 1,
+                        "severity": "warning",
+                        "code": "style/naming_convention",
+                        "message": f"Class name '{cls_name}' should be PascalCase",
+                    }
+                )
 
     return diagnostics
 
 
-def format_gdscript(project_path: str, target: str = ".", check_only: bool = False) -> Dict[str, Any]:
+def format_gdscript(
+    project_path: str, target: str = ".", check_only: bool = False
+) -> Dict[str, Any]:
     """Formats GDScript files in the project or target path using external tools or builtin fallback."""
     abs_project = os.path.abspath(project_path)
     if target.startswith("res://"):
@@ -141,10 +151,14 @@ def format_gdscript(project_path: str, target: str = ".", check_only: bool = Fal
         cmd.append(abs_target)
         res = subprocess.run(cmd, capture_output=True, text=True)
         return {
-            "status": "success" if res.returncode == 0 else "formatting_required" if check_only else "error",
+            "status": "success"
+            if res.returncode == 0
+            else "formatting_required"
+            if check_only
+            else "error",
             "tool_used": tool_name,
             "stdout": res.stdout,
-            "stderr": res.stderr
+            "stderr": res.stderr,
         }
 
     # Builtin Python fallback formatter
@@ -179,7 +193,11 @@ def format_gdscript(project_path: str, target: str = ".", check_only: bool = Fal
 
     if check_only:
         status = "success" if not files_needing_format else "formatting_required"
-        message = "All files formatted." if not files_needing_format else f"{len(files_needing_format)} files require formatting."
+        message = (
+            "All files formatted."
+            if not files_needing_format
+            else f"{len(files_needing_format)} files require formatting."
+        )
     else:
         status = "success"
         message = f"Formatted {formatted_count} files."
@@ -189,7 +207,7 @@ def format_gdscript(project_path: str, target: str = ".", check_only: bool = Fal
         "tool_used": "builtin",
         "message": message,
         "files_needing_format": files_needing_format,
-        "scanned_files": len(target_files)
+        "scanned_files": len(target_files),
     }
 
 
@@ -210,14 +228,16 @@ def lint_gdscript(project_path: str, target: str = ".") -> Dict[str, Any]:
     syntax_res = check_syntax(abs_project)
     if syntax_res.get("status") == "syntax_errors_found":
         for err in syntax_res.get("errors", []):
-            diagnostics.append({
-                "file": abs_project,
-                "line": 1,
-                "column": 1,
-                "severity": "error",
-                "code": "engine/syntax_error",
-                "message": err
-            })
+            diagnostics.append(
+                {
+                    "file": abs_project,
+                    "line": 1,
+                    "column": 1,
+                    "severity": "error",
+                    "code": "engine/syntax_error",
+                    "message": err,
+                }
+            )
 
     # Step 2: Tool or Builtin Static Linting
     tool_path = _find_linter_tool()
@@ -228,14 +248,16 @@ def lint_gdscript(project_path: str, target: str = ".") -> Dict[str, Any]:
         res = subprocess.run(cmd, capture_output=True, text=True)
         if res.stdout:
             for line in res.stdout.splitlines():
-                diagnostics.append({
-                    "file": abs_target,
-                    "line": 1,
-                    "column": 1,
-                    "severity": "warning",
-                    "code": f"{tool_name}/lint",
-                    "message": line.strip()
-                })
+                diagnostics.append(
+                    {
+                        "file": abs_target,
+                        "line": 1,
+                        "column": 1,
+                        "severity": "warning",
+                        "code": f"{tool_name}/lint",
+                        "message": line.strip(),
+                    }
+                )
     else:
         target_files = []
         if os.path.isfile(abs_target) and abs_target.endswith(".gd"):
@@ -265,5 +287,5 @@ def lint_gdscript(project_path: str, target: str = ".") -> Dict[str, Any]:
         "status": status,
         "tool_used": tool_name,
         "total_diagnostics": len(diagnostics),
-        "diagnostics": diagnostics
+        "diagnostics": diagnostics,
     }

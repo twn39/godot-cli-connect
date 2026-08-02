@@ -3,7 +3,12 @@ Unit and integration tests for linter module, format, and lint CLI commands
 """
 
 from typer.testing import CliRunner
-from godot_cli_connect.operations.linter import format_gdscript, lint_gdscript, builtin_format_content, builtin_lint_content
+from godot_cli_connect.operations.linter import (
+    format_gdscript,
+    lint_gdscript,
+    builtin_format_content,
+    builtin_lint_content,
+)
 from godot_cli_connect.cli import app
 
 runner = CliRunner()
@@ -70,7 +75,9 @@ def test_cli_format_check(tmp_path):
     gd_file = tmp_path / "test.gd"
     gd_file.write_text(SAMPLE_UNFORMATTED_SCRIPT)
 
-    res = runner.invoke(app, ["format", str(gd_file), "-p", str(tmp_path), "--check", "--json"])
+    res = runner.invoke(
+        app, ["format", str(gd_file), "-p", str(tmp_path), "--check", "--json"]
+    )
     assert '"status": "formatting_required"' in res.stdout
 
 

@@ -3,7 +3,6 @@ Unit tests for operations modules
 """
 
 import subprocess
-import pytest
 from godot_cli_connect.operations.checker import check_syntax
 from godot_cli_connect.operations.inspector import inspect_project
 from godot_cli_connect.operations.script_runner import run_test_script
@@ -13,9 +12,11 @@ def test_check_syntax_success(monkeypatch, tmp_path):
     fake_godot = tmp_path / "godot"
     fake_godot.touch()
     monkeypatch.setenv("GODOT_PATH", str(fake_godot))
-    
+
     def mock_run(cmd, capture_output, text, timeout):
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="No errors", stderr="")
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout="No errors", stderr=""
+        )
 
     monkeypatch.setattr(subprocess, "run", mock_run)
     res = check_syntax(str(tmp_path))
@@ -48,7 +49,9 @@ def test_run_test_script(monkeypatch, tmp_path):
     monkeypatch.setenv("GODOT_PATH", str(fake_godot))
 
     def mock_run(cmd, capture_output, text, timeout):
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="Test passed", stderr="")
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout="Test passed", stderr=""
+        )
 
     monkeypatch.setattr(subprocess, "run", mock_run)
     res = run_test_script(str(tmp_path), "test.gd")

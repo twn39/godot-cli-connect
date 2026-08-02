@@ -14,6 +14,10 @@ from .operations.logger import get_project_logs
 from .operations.scene_inspector import inspect_scene
 from .operations.evaluator import eval_code
 from .operations.linter import format_gdscript, lint_gdscript
+from .operations.class_info import get_class_info
+from .operations.gut_runner import run_gut_tests
+from .operations.config_editor import set_config_setting, add_input_action
+from .operations.scene_editor import create_scene, add_node_to_scene
 
 __all__ = [
     "_run_godot_cmd",
@@ -30,7 +34,10 @@ __all__ = [
     "eval_code",
     "format_gdscript",
     "lint_gdscript",
+    "get_class_info",
+    "run_gut_tests",
+    "set_config_setting",
+    "add_input_action",
+    "create_scene",
+    "add_node_to_scene",
 ]
-
-
-

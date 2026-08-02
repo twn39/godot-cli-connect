@@ -19,6 +19,6 @@ def test_find_godot_executable_not_found(monkeypatch):
     monkeypatch.delenv("GODOT_PATH", raising=False)
     monkeypatch.setattr(os.path, "exists", lambda p: False)
     monkeypatch.setattr("shutil.which", lambda cmd: None)
-    
+
     with pytest.raises(GodotNotFoundError):
         find_godot_executable()

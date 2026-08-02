@@ -6,12 +6,14 @@ import os
 import json
 import base64
 import tempfile
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from ..finder import find_godot_executable
 from .runner import run_godot_cmd, build_godot_cmd
 
 
-def eval_code(project_path: str, code: str, vars_json: str = "{}", timeout: int = 20) -> Dict[str, Any]:
+def eval_code(
+    project_path: str, code: str, vars_json: str = "{}", timeout: int = 20
+) -> Dict[str, Any]:
     """
     Dynamically evaluates GDScript code or expressions using a 3-Tier Evaluation Pipeline:
     Tier 1: Fast Expression evaluation (with variable binding support)
@@ -87,11 +89,15 @@ func run_pipeline() -> void:
     quit(1)
 """
 
-    with tempfile.NamedTemporaryFile(suffix=".gd", delete=False, mode="w", encoding="utf-8") as tf:
+    with tempfile.NamedTemporaryFile(
+        suffix=".gd", delete=False, mode="w", encoding="utf-8"
+    ) as tf:
         tf.write(helper_code)
         temp_script_path = tf.name
 
-    cmd = build_godot_cmd(godot_bin, project_path=abs_project, headless=True, script=temp_script_path)
+    cmd = build_godot_cmd(
+        godot_bin, project_path=abs_project, headless=True, script=temp_script_path
+    )
 
     try:
         res = run_godot_cmd(cmd, timeout=timeout)
@@ -104,16 +110,16 @@ func run_pipeline() -> void:
         for line in res.stdout.splitlines():
             line_str = line.rstrip()
             if line_str.startswith("EVAL_MODE:"):
-                mode = line_str[len("EVAL_MODE:"):].strip()
+                mode = line_str[len("EVAL_MODE:") :].strip()
             elif line_str.startswith("EVAL_RESULT:"):
-                raw_res = line_str[len("EVAL_RESULT:"):].strip()
+                raw_res = line_str[len("EVAL_RESULT:") :].strip()
                 try:
                     eval_result = json.loads(raw_res)
                 except Exception:
                     eval_result = raw_res
             elif line_str.startswith("EVAL_ERR:"):
                 is_error = True
-                err_msg = line_str[len("EVAL_ERR:"):].strip()
+                err_msg = line_str[len("EVAL_ERR:") :].strip()
             else:
                 stdout_lines.append(line_str)
 
@@ -121,14 +127,14 @@ func run_pipeline() -> void:
             return {
                 "status": "error",
                 "message": err_msg or res.stderr or res.stdout,
-                "stdout": stdout_lines
+                "stdout": stdout_lines,
             }
 
         return {
             "status": "success",
             "mode": mode,
             "result": eval_result,
-            "stdout": stdout_lines
+            "stdout": stdout_lines,
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}

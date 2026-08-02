@@ -11,7 +11,9 @@ from ..finder import find_godot_executable
 from .runner import run_godot_cmd, build_godot_cmd
 
 
-def parse_tscn_text(tscn_content: str, project_path: str, max_depth: int = 3, current_depth: int = 0) -> Dict[str, Any]:
+def parse_tscn_text(
+    tscn_content: str, project_path: str, max_depth: int = 3, current_depth: int = 0
+) -> Dict[str, Any]:
     """
     Parses a Godot 4 .tscn text file content into a structured node hierarchy graph.
     Supports ext_resources, sub_resources, signal connections, and recursive sub-scene expansion.
@@ -52,14 +54,12 @@ def parse_tscn_text(tscn_content: str, project_path: str, max_depth: int = 3, cu
                 if res_id:
                     ext_resources[res_id] = {
                         "type": attrs.get("type", "Resource"),
-                        "path": attrs.get("path", "")
+                        "path": attrs.get("path", ""),
                     }
             elif sec_type == "sub_resource":
                 res_id = attrs.get("id")
                 if res_id:
-                    sub_resources[res_id] = {
-                        "type": attrs.get("type", "Resource")
-                    }
+                    sub_resources[res_id] = {"type": attrs.get("type", "Resource")}
             elif sec_type == "node":
                 node_data: Dict[str, Any] = {
                     "name": attrs.get("name", "Node"),
@@ -70,14 +70,16 @@ def parse_tscn_text(tscn_content: str, project_path: str, max_depth: int = 3, cu
                     "groups": [],
                     "properties": {},
                     "children": [],
-                    "connections": []
+                    "connections": [],
                 }
                 # Process groups if present in attrs string
                 if "groups=" in sec_attrs_str:
-                    groups_match = re.search(r'groups\s*=\s*\[(.*?)\]', sec_attrs_str)
+                    groups_match = re.search(r"groups\s*=\s*\[(.*?)\]", sec_attrs_str)
                     if groups_match:
                         raw_groups = groups_match.group(1)
-                        node_data["groups"] = [g.strip(' "') for g in raw_groups.split(",") if g.strip()]
+                        node_data["groups"] = [
+                            g.strip(' "') for g in raw_groups.split(",") if g.strip()
+                        ]
 
                 # Read node property lines until next section or EOF
                 i += 1
@@ -98,7 +100,9 @@ def parse_tscn_text(tscn_content: str, project_path: str, max_depth: int = 3, cu
                             if ext_ref:
                                 ref_id = ext_ref.group(1)
                                 if ref_id in ext_resources:
-                                    node_data["script_path"] = ext_resources[ref_id]["path"]
+                                    node_data["script_path"] = ext_resources[ref_id][
+                                        "path"
+                                    ]
                         else:
                             node_data["properties"][pk] = pv_clean
                     i += 1
@@ -106,12 +110,14 @@ def parse_tscn_text(tscn_content: str, project_path: str, max_depth: int = 3, cu
                 nodes.append(node_data)
 
             elif sec_type == "connection":
-                connections.append({
-                    "signal": attrs.get("signal", ""),
-                    "from": attrs.get("from", ""),
-                    "to": attrs.get("to", ""),
-                    "method": attrs.get("method", "")
-                })
+                connections.append(
+                    {
+                        "signal": attrs.get("signal", ""),
+                        "from": attrs.get("from", ""),
+                        "to": attrs.get("to", ""),
+                        "method": attrs.get("method", ""),
+                    }
+                )
 
         i += 1
 
@@ -130,7 +136,7 @@ def parse_tscn_text(tscn_content: str, project_path: str, max_depth: int = 3, cu
             node_path = node["name"]
         else:
             node_path = f"{parent}/{node['name']}"
-        
+
         node["node_path"] = node_path
         node_by_path[node_path] = node
 
@@ -167,16 +173,32 @@ def parse_tscn_text(tscn_content: str, project_path: str, max_depth: int = 3, cu
                 ext_ref = re.search(r'ExtResource\("?([^"\)]+)"?\)', inst_id)
                 if ext_ref:
                     ref_id = ext_ref.group(1)
-                    if ref_id in ext_resources and ext_resources[ref_id]["path"].endswith(".tscn"):
-                        sub_scene_rel = ext_resources[ref_id]["path"].replace("res://", "")
+                    if ref_id in ext_resources and ext_resources[ref_id][
+                        "path"
+                    ].endswith(".tscn"):
+                        sub_scene_rel = ext_resources[ref_id]["path"].replace(
+                            "res://", ""
+                        )
                         sub_scene_abs = os.path.join(project_path, sub_scene_rel)
                         if os.path.exists(sub_scene_abs):
                             try:
-                                with open(sub_scene_abs, "r", encoding="utf-8", errors="ignore") as sf:
-                                    sub_parsed = parse_tscn_text(sf.read(), project_path, max_depth, current_depth + 1)
+                                with open(
+                                    sub_scene_abs,
+                                    "r",
+                                    encoding="utf-8",
+                                    errors="ignore",
+                                ) as sf:
+                                    sub_parsed = parse_tscn_text(
+                                        sf.read(),
+                                        project_path,
+                                        max_depth,
+                                        current_depth + 1,
+                                    )
                                     if sub_parsed.get("root_node"):
                                         sub_root = sub_parsed["root_node"]
-                                        node["instance_source"] = ext_resources[ref_id]["path"]
+                                        node["instance_source"] = ext_resources[ref_id][
+                                            "path"
+                                        ]
                                         # Merge sub-scene children into current node
                                         for child in sub_root.get("children", []):
                                             child["is_instantiated_child"] = True
@@ -190,7 +212,7 @@ def parse_tscn_text(tscn_content: str, project_path: str, max_depth: int = 3, cu
         "ext_resources": ext_resources,
         "sub_resources": sub_resources,
         "total_nodes": len(nodes),
-        "connections_count": len(connections)
+        "connections_count": len(connections),
     }
 
 
@@ -198,7 +220,7 @@ def inspect_scene_engine(project_path: str, scene_path: str) -> Dict[str, Any]:
     """Runs a headless Godot process to inspect instantiated scene node hierarchy and runtime info."""
     godot_bin = find_godot_executable()
     abs_project = os.path.abspath(project_path)
-    
+
     b64_scene = base64.b64encode(scene_path.encode("utf-8")).decode("ascii")
 
     helper_code = f"""
@@ -254,24 +276,29 @@ func serialize_node(node: Node) -> Dictionary:
 
     return data
 """
-    with tempfile.NamedTemporaryFile(suffix=".gd", delete=False, mode="w", encoding="utf-8") as tf:
+    with tempfile.NamedTemporaryFile(
+        suffix=".gd", delete=False, mode="w", encoding="utf-8"
+    ) as tf:
         tf.write(helper_code)
         temp_script_path = tf.name
 
-    cmd = build_godot_cmd(godot_bin, project_path=abs_project, headless=True, script=temp_script_path)
+    cmd = build_godot_cmd(
+        godot_bin, project_path=abs_project, headless=True, script=temp_script_path
+    )
 
     try:
         res = run_godot_cmd(cmd, timeout=20)
         for line in res.stdout.splitlines():
             if line.startswith("SCENE_TREE_JSON:"):
                 import json
-                raw_json = line[len("SCENE_TREE_JSON:"):].strip()
+
+                raw_json = line[len("SCENE_TREE_JSON:") :].strip()
                 parsed_root = json.loads(raw_json)
                 return {
                     "status": "success",
                     "mode": "engine",
                     "scene_path": scene_path,
-                    "root_node": parsed_root
+                    "root_node": parsed_root,
                 }
         return {"status": "error", "message": res.stdout or res.stderr}
     except Exception as e:
@@ -281,13 +308,15 @@ func serialize_node(node: Node) -> Dictionary:
             os.remove(temp_script_path)
 
 
-def inspect_scene(project_path: str, scene_path: str, use_engine: bool = False, max_depth: int = 3) -> Dict[str, Any]:
+def inspect_scene(
+    project_path: str, scene_path: str, use_engine: bool = False, max_depth: int = 3
+) -> Dict[str, Any]:
     """
     Main entry point to inspect Godot .tscn files.
     Defaults to fast zero-dependency static parsing, with optional engine runtime fallback.
     """
     abs_project = os.path.abspath(project_path)
-    
+
     # Resolve scene path
     if scene_path.startswith("res://"):
         rel_scene = scene_path.replace("res://", "")
@@ -298,13 +327,14 @@ def inspect_scene(project_path: str, scene_path: str, use_engine: bool = False, 
             abs_scene = os.path.join(abs_project, scene_path)
 
     if not os.path.exists(abs_scene):
-        return {
-            "status": "error",
-            "message": f"Scene file not found at {abs_scene}"
-        }
+        return {"status": "error", "message": f"Scene file not found at {abs_scene}"}
 
     if use_engine:
-        res_scene_path = scene_path if scene_path.startswith("res://") else f"res://{os.path.relpath(abs_scene, abs_project)}"
+        res_scene_path = (
+            scene_path
+            if scene_path.startswith("res://")
+            else f"res://{os.path.relpath(abs_scene, abs_project)}"
+        )
         return inspect_scene_engine(abs_project, res_scene_path)
 
     try:

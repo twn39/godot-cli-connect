@@ -3,12 +3,13 @@ Structured data response models for godot-cli-connect operations
 """
 
 from dataclasses import dataclass, field, asdict
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 
 @dataclass
 class OperationResult:
     """Standard operation response container."""
+
     status: str  # "success", "error", "failure", "syntax_errors_found"
     message: str = ""
     data: Dict[str, Any] = field(default_factory=dict)
