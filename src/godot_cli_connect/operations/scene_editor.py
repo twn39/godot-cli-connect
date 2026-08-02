@@ -1,13 +1,14 @@
 """
-Godot .tscn scene creation and node modification module
+Godot .tscn scene creation, node modification, property editing, and node deletion module
 """
 
-import os
 import base64
+import os
 import tempfile
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
 from ..finder import find_godot_executable
-from .runner import run_godot_cmd, build_godot_cmd
+from .runner import build_godot_cmd, run_godot_cmd
 
 
 def create_scene_offline(abs_scene: str, root_type: str, root_name: str) -> bool:
@@ -290,7 +291,12 @@ func run_add_node() -> void:
     var parsed_props = JSON.parse_string(raw_props)
     if parsed_props != null and parsed_props is Dictionary:
         for k in parsed_props.keys():
-            new_child.set(k, parsed_props[k])
+            var v_val = parsed_props[k]
+            if v_val is String:
+                var parsed_v = str_to_var(v_val)
+                if parsed_v != null:
+                    v_val = parsed_v
+            new_child.set(k, v_val)
 
     parent_node.add_child(new_child)
     set_owner_recursive(inst, inst)
@@ -349,4 +355,248 @@ func run_add_node() -> void:
     return {
         "status": "error",
         "message": f"Failed to add node {node_name} to scene {res_scene_path}",
+    }
+
+
+def edit_node_in_scene(
+    project_path: str,
+    scene_path: str,
+    node_path: str,
+    properties_json: str = "{}",
+) -> Dict[str, Any]:
+    """Edits properties of an existing node in a .tscn scene file."""
+    abs_project = os.path.abspath(project_path)
+    if scene_path.startswith("res://"):
+        rel_path = scene_path[6:]
+        abs_scene_path = os.path.join(abs_project, rel_path)
+        res_scene_path = scene_path
+    elif os.path.isabs(scene_path):
+        abs_scene_path = os.path.abspath(scene_path)
+        try:
+            res_scene_path = f"res://{os.path.relpath(abs_scene_path, abs_project)}"
+        except ValueError:
+            res_scene_path = f"res://{os.path.basename(abs_scene_path)}"
+    else:
+        abs_scene_path = os.path.abspath(os.path.join(abs_project, scene_path))
+        res_scene_path = f"res://{os.path.relpath(abs_scene_path, abs_project)}"
+
+    if not os.path.exists(abs_scene_path):
+        return {
+            "status": "error",
+            "message": f"Scene file not found at {abs_scene_path}",
+        }
+
+    try:
+        godot_bin = find_godot_executable()
+        b64_scene = base64.b64encode(res_scene_path.encode("utf-8")).decode("ascii")
+        b64_node = base64.b64encode(node_path.encode("utf-8")).decode("ascii")
+        b64_props = base64.b64encode(properties_json.encode("utf-8")).decode("ascii")
+
+        helper_code = f"""
+extends SceneTree
+
+func _init() -> void:
+    call_deferred("run_edit_node")
+
+func set_owner_recursive(node: Node, owner_node: Node) -> void:
+    for child in node.get_children():
+        if child != owner_node:
+            child.owner = owner_node
+        set_owner_recursive(child, owner_node)
+
+func run_edit_node() -> void:
+    var scn_path = Marshalls.base64_to_utf8("{b64_scene}")
+    var n_path = Marshalls.base64_to_utf8("{b64_node}")
+    var raw_props = Marshalls.base64_to_utf8("{b64_props}")
+
+    if not ResourceLoader.exists(scn_path):
+        print("NODE_EDIT_ERR:Scene does not exist " + scn_path)
+        quit(1)
+        return
+
+    var scn_res = load(scn_path)
+    if not (scn_res is PackedScene):
+        print("NODE_EDIT_ERR:Resource is not PackedScene " + scn_path)
+        quit(1)
+        return
+
+    var inst = scn_res.instantiate()
+    var target_node = inst
+    if n_path != "." and n_path != "":
+        target_node = inst.get_node_or_null(n_path)
+        if target_node == null:
+            print("NODE_EDIT_ERR:Target node not found " + n_path)
+            quit(1)
+            return
+
+    var parsed_props = JSON.parse_string(raw_props)
+    if parsed_props != null and parsed_props is Dictionary:
+        for k in parsed_props.keys():
+            var v_val = parsed_props[k]
+            if v_val is String:
+                var parsed_v = str_to_var(v_val)
+                if parsed_v != null:
+                    v_val = parsed_v
+            target_node.set(k, v_val)
+
+    set_owner_recursive(inst, inst)
+    var packed = PackedScene.new()
+    var pack_err = packed.pack(inst)
+    if pack_err != OK:
+        print("NODE_EDIT_ERR:Pack error " + str(pack_err))
+        quit(1)
+        return
+
+    var save_err = ResourceSaver.save(packed, scn_path)
+    print("NODE_EDITED:ERR=" + str(save_err))
+    quit()
+"""
+        with tempfile.NamedTemporaryFile(
+            suffix=".gd", delete=False, mode="w", encoding="utf-8"
+        ) as tf:
+            tf.write(helper_code)
+            temp_script_path = tf.name
+
+        cmd = build_godot_cmd(
+            godot_bin, project_path=abs_project, headless=True, script=temp_script_path
+        )
+
+        try:
+            res = run_godot_cmd(cmd, timeout=20)
+            if "NODE_EDITED:ERR=0" in res.stdout:
+                return {
+                    "status": "success",
+                    "mode": "engine",
+                    "scene_path": res_scene_path,
+                    "node_path": node_path,
+                    "properties": properties_json,
+                }
+        finally:
+            if os.path.exists(temp_script_path):
+                os.remove(temp_script_path)
+    except Exception:
+        pass
+
+    return {
+        "status": "error",
+        "message": f"Failed to edit node {node_path} in scene {res_scene_path}",
+    }
+
+
+def remove_node_from_scene(
+    project_path: str,
+    scene_path: str,
+    node_path: str,
+) -> Dict[str, Any]:
+    """Removes a target child node synchronously from a .tscn scene file."""
+    abs_project = os.path.abspath(project_path)
+    if scene_path.startswith("res://"):
+        rel_path = scene_path[6:]
+        abs_scene_path = os.path.join(abs_project, rel_path)
+        res_scene_path = scene_path
+    elif os.path.isabs(scene_path):
+        abs_scene_path = os.path.abspath(scene_path)
+        try:
+            res_scene_path = f"res://{os.path.relpath(abs_scene_path, abs_project)}"
+        except ValueError:
+            res_scene_path = f"res://{os.path.basename(abs_scene_path)}"
+    else:
+        abs_scene_path = os.path.abspath(os.path.join(abs_project, scene_path))
+        res_scene_path = f"res://{os.path.relpath(abs_scene_path, abs_project)}"
+
+    if not os.path.exists(abs_scene_path):
+        return {
+            "status": "error",
+            "message": f"Scene file not found at {abs_scene_path}",
+        }
+
+    try:
+        godot_bin = find_godot_executable()
+        b64_scene = base64.b64encode(res_scene_path.encode("utf-8")).decode("ascii")
+        b64_node = base64.b64encode(node_path.encode("utf-8")).decode("ascii")
+
+        helper_code = f"""
+extends SceneTree
+
+func _init() -> void:
+    call_deferred("run_remove_node")
+
+func set_owner_recursive(node: Node, owner_node: Node) -> void:
+    for child in node.get_children():
+        if child != owner_node:
+            child.owner = owner_node
+        set_owner_recursive(child, owner_node)
+
+func run_remove_node() -> void:
+    var scn_path = Marshalls.base64_to_utf8("{b64_scene}")
+    var n_path = Marshalls.base64_to_utf8("{b64_node}")
+
+    if not ResourceLoader.exists(scn_path):
+        print("NODE_RM_ERR:Scene does not exist " + scn_path)
+        quit(1)
+        return
+
+    var scn_res = load(scn_path)
+    if not (scn_res is PackedScene):
+        print("NODE_RM_ERR:Resource is not PackedScene " + scn_path)
+        quit(1)
+        return
+
+    var inst = scn_res.instantiate()
+    if n_path == "." or n_path == "":
+        print("NODE_RM_ERR:Cannot remove root node")
+        quit(1)
+        return
+
+    var target_node = inst.get_node_or_null(n_path)
+    if target_node == null:
+        print("NODE_RM_ERR:Target node not found " + n_path)
+        quit(1)
+        return
+
+    var parent_node = target_node.get_parent()
+    if parent_node != null:
+        parent_node.remove_child(target_node)
+        target_node.free()
+
+    set_owner_recursive(inst, inst)
+    var packed = PackedScene.new()
+    var pack_err = packed.pack(inst)
+    if pack_err != OK:
+        print("NODE_RM_ERR:Pack error " + str(pack_err))
+        quit(1)
+        return
+
+    var save_err = ResourceSaver.save(packed, scn_path)
+    print("NODE_REMOVED:ERR=" + str(save_err))
+    quit()
+"""
+        with tempfile.NamedTemporaryFile(
+            suffix=".gd", delete=False, mode="w", encoding="utf-8"
+        ) as tf:
+            tf.write(helper_code)
+            temp_script_path = tf.name
+
+        cmd = build_godot_cmd(
+            godot_bin, project_path=abs_project, headless=True, script=temp_script_path
+        )
+
+        try:
+            res = run_godot_cmd(cmd, timeout=20)
+            if "NODE_REMOVED:ERR=0" in res.stdout:
+                return {
+                    "status": "success",
+                    "mode": "engine",
+                    "scene_path": res_scene_path,
+                    "removed_node": node_path,
+                }
+        finally:
+            if os.path.exists(temp_script_path):
+                os.remove(temp_script_path)
+    except Exception:
+        pass
+
+    return {
+        "status": "error",
+        "message": f"Failed to remove node {node_path} from scene {res_scene_path}",
     }

@@ -28,6 +28,10 @@ from .core import (
     add_input_action,
     create_scene,
     add_node_to_scene,
+    edit_node_in_scene,
+    remove_node_from_scene,
+    search_docs,
+    compare_screenshots,
 )
 from .finder import find_godot_executable
 
@@ -792,6 +796,180 @@ def cmd_add_node(
         )
     else:
         console.print(f"[bold red]✖ Add node failed:[/bold red] {res.get('message')}")
+        raise typer.Exit(code=1)
+
+
+@app.command("docs-search")
+def cmd_docs_search(
+    query: str = typer.Argument(
+        ..., help="Search query (e.g. CharacterBody2D, TileMap, collision)"
+    ),
+    limit: int = typer.Option(
+        5, "--limit", "-l", help="Maximum number of search results to display"
+    ),
+    project: str = typer.Option(
+        ".", "--project", "-p", help="Path to Godot project directory"
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output raw JSON for LLM Agent parsing"
+    ),
+):
+    """Search Godot 4 official class documentation and retrieve GDScript code examples."""
+    res = search_docs(query, project_path=project, limit=limit)
+    if json_output:
+        console.print_json(data=res)
+        if res["status"] != "success":
+            raise typer.Exit(code=1)
+        return
+
+    if res["status"] == "success" and res.get("results"):
+        console.print(
+            f"[bold cyan]🔍 Found {res['total']} doc results for '{query}':[/bold cyan]\n"
+        )
+        for item in res["results"]:
+            snippet_str = (
+                f"\n\n[bold yellow]GDScript Usage Example:[/bold yellow]\n[green]{item['code_example']}[/green]"
+                if item.get("code_example")
+                else ""
+            )
+            methods_str = ", ".join(item.get("key_methods", [])[:5]) or "None"
+            console.print(
+                Panel(
+                    f"[bold white]{item['brief_description']}[/bold white]\n"
+                    f"[bold dim]Inherits: {item['inherits']}[/bold dim]\n"
+                    f"[bold cyan]Docs Link:[/bold cyan] {item['docs_url']}\n"
+                    f"[bold magenta]Key Methods:[/bold magenta] {methods_str}{snippet_str}",
+                    title=f"Class: [bold yellow]{item['name']}[/bold yellow]",
+                )
+            )
+    else:
+        console.print(
+            f"[bold yellow]⚠ No documentation results found for '{query}'.[/bold yellow]"
+        )
+        raise typer.Exit(code=1)
+
+
+@app.command("edit-node")
+def cmd_edit_node(
+    scene_path: str = typer.Argument(..., help="Path to target scene file (.tscn)"),
+    node: str = typer.Option(
+        ...,
+        "--node",
+        "-n",
+        help="Node path in scene relative to root (e.g. '.' or 'Player/Sprite2D')",
+    ),
+    properties: str = typer.Option(
+        "{}", "--properties", "-props", help="JSON string of properties to set"
+    ),
+    project: str = typer.Option(
+        ".", "--project", "-p", help="Path to Godot project directory"
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output raw JSON for LLM Agent parsing"
+    ),
+):
+    """Edit properties of an existing node in a .tscn scene file."""
+    res = edit_node_in_scene(project, scene_path, node, properties_json=properties)
+    if json_output:
+        console.print_json(data=res)
+        if res["status"] != "success":
+            raise typer.Exit(code=1)
+        return
+
+    if res["status"] == "success":
+        console.print(
+            f"[bold green]✔ Node edited in scene ([dim]mode: {res['mode']}[/dim]):[/bold green] {res['node_path']} ➔ {res['scene_path']}"
+        )
+    else:
+        console.print(f"[bold red]✖ Edit node failed:[/bold red] {res.get('message')}")
+        raise typer.Exit(code=1)
+
+
+@app.command("remove-node")
+def cmd_remove_node(
+    scene_path: str = typer.Argument(..., help="Path to target scene file (.tscn)"),
+    node: str = typer.Option(
+        ..., "--node", "-n", help="Target node path to remove (e.g. 'Player/Sprite2D')"
+    ),
+    project: str = typer.Option(
+        ".", "--project", "-p", help="Path to Godot project directory"
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output raw JSON for LLM Agent parsing"
+    ),
+):
+    """Remove a child node synchronously from a .tscn scene file."""
+    res = remove_node_from_scene(project, scene_path, node)
+    if json_output:
+        console.print_json(data=res)
+        if res["status"] != "success":
+            raise typer.Exit(code=1)
+        return
+
+    if res["status"] == "success":
+        console.print(
+            f"[bold green]✔ Node removed from scene ([dim]mode: {res['mode']}[/dim]):[/bold green] {res['removed_node']} ➔ {res['scene_path']}"
+        )
+    else:
+        console.print(
+            f"[bold red]✖ Remove node failed:[/bold red] {res.get('message')}"
+        )
+        raise typer.Exit(code=1)
+
+
+@app.command("screenshot-diff")
+def cmd_screenshot_diff(
+    baseline: str = typer.Option(
+        ..., "--baseline", "-b", help="Path to baseline screenshot PNG"
+    ),
+    current: str = typer.Option(
+        ..., "--current", "-c", help="Path to current screenshot PNG"
+    ),
+    diff_output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Optional path to save red highlight diff mask PNG"
+    ),
+    threshold: float = typer.Option(
+        0.05,
+        "--threshold",
+        "-t",
+        help="Max allowed pixel difference ratio (e.g. 0.05 for 5%)",
+    ),
+    tolerance: int = typer.Option(
+        10, "--tolerance", "-tol", help="Per-channel color difference tolerance (0-255)"
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output raw JSON for LLM Agent parsing"
+    ),
+):
+    """Compare two offscreen screenshots and compute visual diff percentage with red highlight overlay."""
+    res = compare_screenshots(
+        baseline,
+        current,
+        diff_output_path=diff_output,
+        threshold=threshold,
+        tolerance=tolerance,
+    )
+    if json_output:
+        console.print_json(data=res)
+        if res["status"] != "success":
+            raise typer.Exit(code=1)
+        return
+
+    if res["status"] == "success":
+        console.print(
+            f"[bold green]✔ Screenshot diff passed:[/bold green] Diff: {res['diff_percentage'] * 100:.2f}% <= Threshold: {threshold * 100:.2f}%"
+        )
+        if res.get("diff_output_path"):
+            console.print(f"  [dim]Diff mask saved to: {res['diff_output_path']}[/dim]")
+    else:
+        diff_pct = res.get("diff_percentage", 0.0) * 100
+        console.print(
+            f"[bold red]✖ Screenshot visual diff failed ([dim]{res.get('message', 'Diff exceeds threshold')}[/dim]):[/bold red] Diff: {diff_pct:.2f}% > Threshold: {threshold * 100:.2f}%"
+        )
+        if res.get("diff_output_path"):
+            console.print(
+                f"  [red]Highlight diff mask saved to: {res['diff_output_path']}[/red]"
+            )
         raise typer.Exit(code=1)
 
 

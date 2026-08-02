@@ -17,7 +17,14 @@ from .operations.linter import format_gdscript, lint_gdscript
 from .operations.class_info import get_class_info
 from .operations.gut_runner import run_gut_tests
 from .operations.config_editor import set_config_setting, add_input_action
-from .operations.scene_editor import create_scene, add_node_to_scene
+from .operations.scene_editor import (
+    create_scene,
+    add_node_to_scene,
+    edit_node_in_scene,
+    remove_node_from_scene,
+)
+from .operations.docs_search import search_docs
+from .operations.screenshot_diff import compare_screenshots
 
 __all__ = [
     "_run_godot_cmd",
@@ -40,4 +47,8 @@ __all__ = [
     "add_input_action",
     "create_scene",
     "add_node_to_scene",
+    "edit_node_in_scene",
+    "remove_node_from_scene",
+    "search_docs",
+    "compare_screenshots",
 ]
