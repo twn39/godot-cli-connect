@@ -35,6 +35,7 @@ RESULT_SCHEMA: dict[str, Any] = {
 CLI_ALIASES: dict[str, str] = {
     "bg-remove": "remove-bg",
     "import-assets": "reimport",
+    "set-resolution": "config-resolution",
 }
 
 # Keep in sync with Typer command surface (validated by tests + catalog_alignment).
@@ -205,6 +206,13 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "config-set",
         "summary": "Set a project.godot setting",
+        "json": True,
+        "needs_project": True,
+        "offline_ok": True,
+    },
+    {
+        "name": "config-resolution",
+        "summary": "Set project display resolution and responsive stretch mode",
         "json": True,
         "needs_project": True,
         "offline_ok": True,

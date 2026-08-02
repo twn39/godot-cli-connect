@@ -66,7 +66,22 @@ def builtin_lint_content(file_path: str, content: str) -> list[dict[str, Any]]:
     def is_upper_snake_case(s: str) -> bool:
         return bool(re.match(r"^[A-Z0-9_]+$", s))
 
+    py_type_str_re = re.compile(r"(?:\b:\s*|\b->\s*)str\b")
+    py_type_dict_re = re.compile(r"(?:\b:\s*|\b->\s*)dict\b")
+    py_type_list_re = re.compile(r"(?:\b:\s*|\b->\s*)list\b")
+
+    yield_re = re.compile(r"\byield\s*\(")
+    instance_re = re.compile(r"\.instance\s*\(")
+    rand_range_re = re.compile(r"\brand_range\s*\(")
+    godot3_export_re = re.compile(r"^\s*export(?:\([^)]*\))?\s+var\b")
+    godot3_onready_re = re.compile(r"^\s*onready\s+var\b")
+
+    none_re = re.compile(r"\bNone\b")
+    capital_bool_re = re.compile(r"\b(True|False)\b")
+
     for idx, line in enumerate(lines, start=1):
+        code_part = line.split("#")[0]
+
         # Line length check
         if len(line) > 120:
             diagnostics.append(
@@ -77,6 +92,122 @@ def builtin_lint_content(file_path: str, content: str) -> list[dict[str, Any]]:
                     "severity": "warning",
                     "code": "style/line_length",
                     "message": f"Line exceeds 120 characters ({len(line)} chars)",
+                }
+            )
+
+        # Check Python-style type annotations
+        if py_type_str_re.search(code_part):
+            diagnostics.append(
+                {
+                    "file": file_path,
+                    "line": idx,
+                    "column": 1,
+                    "severity": "warning",
+                    "code": "type/python_str_type",
+                    "message": "Use 'String' instead of 'str' in GDScript 2.0 type annotations.",
+                }
+            )
+        if py_type_dict_re.search(code_part):
+            diagnostics.append(
+                {
+                    "file": file_path,
+                    "line": idx,
+                    "column": 1,
+                    "severity": "warning",
+                    "code": "type/python_dict_type",
+                    "message": "Use 'Dictionary' instead of 'dict' in GDScript 2.0 type annotations.",
+                }
+            )
+        if py_type_list_re.search(code_part):
+            diagnostics.append(
+                {
+                    "file": file_path,
+                    "line": idx,
+                    "column": 1,
+                    "severity": "warning",
+                    "code": "type/python_list_type",
+                    "message": "Use 'Array' instead of 'list' in GDScript 2.0 type annotations.",
+                }
+            )
+
+        # Check Godot 3 -> 4 Deprecations
+        if yield_re.search(code_part):
+            diagnostics.append(
+                {
+                    "file": file_path,
+                    "line": idx,
+                    "column": 1,
+                    "severity": "error",
+                    "code": "deprecated/yield",
+                    "message": "'yield()' is deprecated in Godot 4, use 'await'.",
+                }
+            )
+        if instance_re.search(code_part):
+            diagnostics.append(
+                {
+                    "file": file_path,
+                    "line": idx,
+                    "column": 1,
+                    "severity": "error",
+                    "code": "deprecated/instance",
+                    "message": "'.instance()' is deprecated in Godot 4, use '.instantiate()'.",
+                }
+            )
+        if rand_range_re.search(code_part):
+            diagnostics.append(
+                {
+                    "file": file_path,
+                    "line": idx,
+                    "column": 1,
+                    "severity": "warning",
+                    "code": "deprecated/rand_range",
+                    "message": "'rand_range()' is deprecated in Godot 4, use 'randf_range()' or 'randi_range()'.",
+                }
+            )
+        if godot3_export_re.search(code_part):
+            diagnostics.append(
+                {
+                    "file": file_path,
+                    "line": idx,
+                    "column": 1,
+                    "severity": "warning",
+                    "code": "deprecated/godot3_export",
+                    "message": "Use '@export var' annotation in Godot 4.",
+                }
+            )
+        if godot3_onready_re.search(code_part):
+            diagnostics.append(
+                {
+                    "file": file_path,
+                    "line": idx,
+                    "column": 1,
+                    "severity": "warning",
+                    "code": "deprecated/godot3_onready",
+                    "message": "Use '@onready var' annotation in Godot 4.",
+                }
+            )
+
+        # Check Python keywords/literals
+        if none_re.search(code_part):
+            diagnostics.append(
+                {
+                    "file": file_path,
+                    "line": idx,
+                    "column": 1,
+                    "severity": "warning",
+                    "code": "syntax/python_none",
+                    "message": "Use 'null' instead of 'None' in GDScript.",
+                }
+            )
+        if capital_bool_re.search(code_part):
+            diagnostics.append(
+                {
+                    "file": file_path,
+                    "line": idx,
+                    "column": 1,
+                    "severity": "warning",
+                    "code": "syntax/python_bool",
+                    "message": "Use lowercase 'true' / 'false' in GDScript.",
                 }
             )
 
@@ -243,7 +374,7 @@ def lint_gdscript(project_path: str, target: str = ".") -> dict[str, Any]:
     # Step 1: Engine Syntax Check
     syntax_res = check_syntax(abs_project)
     if syntax_res.get("status") == "syntax_errors_found":
-        for err in syntax_res.get("errors", []):
+        for syntax_err in syntax_res.get("errors", []):
             diagnostics.append(
                 {
                     "file": abs_project,
@@ -251,7 +382,7 @@ def lint_gdscript(project_path: str, target: str = ".") -> dict[str, Any]:
                     "column": 1,
                     "severity": "error",
                     "code": "engine/syntax_error",
-                    "message": err,
+                    "message": syntax_err,
                 }
             )
 

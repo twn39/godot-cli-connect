@@ -178,9 +178,14 @@ def register(app: typer.Typer) -> None:
                     break
             return
 
-        if not code:
+        import sys
+
+        if not code and not repl and not sys.stdin.isatty():
+            code = sys.stdin.read().strip()
+
+        if not code and not repl:
             console.print(
-                "[bold red]✖ Error:[/bold red] Please provide code to evaluate or use --repl for interactive session."
+                "[bold red]✖ Error:[/bold red] Please provide code to evaluate, pipe code via stdin, or use --repl."
             )
             raise typer.Exit(code=1)
 

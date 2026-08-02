@@ -17,16 +17,38 @@ def eval_code(
     project_path: str, code: str, vars_json: str = "{}", timeout: int = 20
 ) -> dict[str, Any]:
     """
-    Dynamically evaluates GDScript code or expressions using a 3-Tier Evaluation Pipeline:
+    Dynamically evaluates GDScript code or expressions using a 2-Tier Evaluation Pipeline:
     Tier 1: Fast Expression evaluation (with variable binding support)
-    Tier 2: Inline GDScript compilation via GDScript.new()
-    Tier 3: Full SceneTree execution environment
+    Tier 2: Direct disk-compiled GDScript function execution
     """
     godot_bin = find_godot_executable()
     abs_project = os.path.abspath(project_path)
 
     b64_code = base64.b64encode(code.strip().encode("utf-8")).decode("ascii")
     b64_vars = base64.b64encode(vars_json.strip().encode("utf-8")).decode("ascii")
+
+    # Prepare indented user function body for Tier 2 fallback
+    body_lines = []
+    try:
+        parsed_vars_dict = json.loads(vars_json or "{}")
+        if isinstance(parsed_vars_dict, dict):
+            for v_key in parsed_vars_dict.keys():
+                body_lines.append(f"var {v_key} = _vars.get('{v_key}')")
+    except Exception:
+        pass
+
+    code_clean = code.strip().replace(";", "\n")
+    has_return = False
+    for line in code_clean.splitlines():
+        line_s = line.strip()
+        if line_s:
+            body_lines.append(line_s)
+            if line_s.startswith("return "):
+                has_return = True
+    if not has_return:
+        body_lines.append("return null")
+
+    indented_body = "\n    ".join(body_lines) if body_lines else "return null"
 
     helper_code = f"""
 extends SceneTree
@@ -37,7 +59,7 @@ func _init() -> void:
 func run_pipeline() -> void:
     var raw_code = Marshalls.base64_to_utf8("{b64_code}")
     var raw_vars = Marshalls.base64_to_utf8("{b64_vars}")
-    
+
     var var_dict = {{}}
     var parsed_vars = JSON.parse_string(raw_vars)
     if parsed_vars != null and parsed_vars is Dictionary:
@@ -60,35 +82,14 @@ func run_pipeline() -> void:
             quit()
             return
 
-    # Tier 2: Inline GDScript Function Compilation
-    var script = GDScript.new()
-    var script_src = "extends RefCounted\\n"
-    for k in var_dict.keys():
-        script_src += "var " + str(k) + " = " + JSON.stringify(var_dict[k]) + "\\n"
-    
-    script_src += "func _eval_entry():\\n"
-    var code_lines = raw_code.split("\\n")
-    var has_return = false
-    for line in code_lines:
-        script_src += "    " + line + "\\n"
-        if line.strip().startswith("return "):
-            has_return = true
+    # Tier 2: Custom Function Execution
+    var res2 = _user_eval_entry(var_dict)
+    print("EVAL_MODE:gdscript_inline")
+    print("EVAL_RESULT:" + JSON.stringify(res2))
+    quit()
 
-    script.source_code = script_src
-    var reload_err = script.reload()
-    if reload_err == OK:
-        var instance = script.new()
-        if instance != null and instance.has_method("_eval_entry"):
-            var res2 = instance.call("_eval_entry")
-            print("EVAL_MODE:gdscript_inline")
-            print("EVAL_RESULT:" + JSON.stringify(res2))
-            quit()
-            return
-
-    # Tier 3: Direct Statement Fallback
-    print("EVAL_MODE:fallback")
-    print("EVAL_ERR:Could not execute expression or inline script")
-    quit(1)
+func _user_eval_entry(_vars: Dictionary) -> Variant:
+    {indented_body}
 """
 
     with tempfile.NamedTemporaryFile(suffix=".gd", delete=False, mode="w", encoding="utf-8") as tf:

@@ -106,8 +106,8 @@ def register(app: typer.Typer) -> None:
     @app.command("remove-bg", rich_help_panel="Media / Assets")
     @app.command("bg-remove", rich_help_panel="Media / Assets")
     def cmd_remove_bg(
-        input_path: str = typer.Argument(
-            ..., help="Input image path (png/jpg/webp) or directory for batch mode"
+        inputs: list[str] = typer.Argument(
+            ..., help="Input image path(s) (png/jpg/webp) or directory for batch mode"
         ),
         output: str | None = typer.Option(
             None,
@@ -136,28 +136,36 @@ def register(app: typer.Typer) -> None:
         Remove image background for game assets using BiRefNet_lite (ONNX + OpenCV).
 
         Place ``BiRefNet_lite_fp16.onnx`` in the project root, or pass ``--model``.
-        Writes a transparent PNG suitable for Godot sprites.
+        Supports single file, multiple files, or directory batch mode.
         """
         import os
 
-        if os.path.isdir(input_path):
-            paths = [
-                os.path.join(input_path, f)
-                for f in sorted(os.listdir(input_path))
-                if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp"))
-            ]
-            if not paths:
-                common.print_fail(f"No images found in directory: {input_path}")
-            res = remove_background_batch(
-                paths, output_dir=output, model_path=model, threshold=threshold
-            )
-        else:
+        paths: list[str] = []
+        for p in inputs:
+            if os.path.isdir(p):
+                dir_paths = [
+                    os.path.join(p, f)
+                    for f in sorted(os.listdir(p))
+                    if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp"))
+                ]
+                paths.extend(dir_paths)
+            else:
+                paths.append(p)
+
+        if not paths:
+            common.print_fail(f"No image files found in inputs: {inputs}")
+
+        if len(paths) == 1 and not os.path.isdir(inputs[0]):
             res = remove_background(
-                input_path,
+                paths[0],
                 output,
                 model_path=model,
                 threshold=threshold,
                 save_mask=save_mask,
+            )
+        else:
+            res = remove_background_batch(
+                paths, output_dir=output, model_path=model, threshold=threshold
             )
 
         if common.handle_json_flag(res, json_output, exit_on_error=True):

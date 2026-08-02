@@ -96,3 +96,36 @@ def test_remove_background_mocked(tmp_path, monkeypatch):
     result = cv2.imread(str(out), cv2.IMREAD_UNCHANGED)
     assert result is not None
     assert result.shape[2] == 4
+
+
+def test_remove_bg_cli_multi_inputs(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+    from godot_cli_connect.cli import app
+
+    runner = CliRunner()
+    img1 = tmp_path / "a.png"
+    img2 = tmp_path / "b.png"
+    cv2.imwrite(str(img1), np.zeros((32, 32, 3), dtype=np.uint8))
+    cv2.imwrite(str(img2), np.zeros((32, 32, 3), dtype=np.uint8))
+
+    model = tmp_path / "BiRefNet_lite_fp16.onnx"
+    model.write_bytes(b"x")
+
+    class FakeSession:
+        def get_inputs(self):
+            class I: name = "in"; shape = [1, 3, 1024, 1024]
+            return [I()]
+        def get_outputs(self):
+            class O: name = "out"
+            return [O()]
+        def get_providers(self):
+            return ["CPUExecutionProvider"]
+        def run(self, output_names, feed):
+            return [np.zeros((1, 1, 1024, 1024), dtype=np.float32)]
+
+    monkeypatch.setattr(bg_remove, "_load_session", lambda _p: FakeSession())
+
+    out_dir = tmp_path / "out"
+    result = runner.invoke(app, ["remove-bg", str(img1), str(img2), "-o", str(out_dir), "-m", str(model), "--json"])
+    assert result.exit_code == 0
+    assert "Processed 2/2 images" in result.stdout

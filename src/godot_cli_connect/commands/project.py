@@ -467,18 +467,64 @@ def register(app: typer.Typer) -> None:
     @app.command("import-assets", rich_help_panel="Project")
     def cmd_reimport(
         project: str = typer.Option(".", "--project", "-p", help="Path to Godot project directory"),
+        clean: bool = typer.Option(
+            False, "--clean", "-c", help="Purge .godot/imported cache before reimport scan"
+        ),
         json_output: bool = typer.Option(
             False, "--json", help="Output raw JSON for LLM Agent parsing"
         ),
     ):
         """Force Godot to scan the project directory and reimport new or modified assets."""
-        res = reimport_assets(project)
+        res = reimport_assets(project, clean=clean)
         if common.handle_json_flag(res, json_output, exit_on_error=True):
             return
         if res["status"] == "success":
-            console.print(
-                f"[bold green]✔ Assets reimported successfully:[/bold green] [underline]{res.get('project_path', project)}[/underline]"
-            )
+            msg = f"[bold green]✔ {res.get('message', 'Assets reimported successfully.')}[/bold green]"
+            console.print(f"{msg} [underline]{res.get('project_path', project)}[/underline]")
+            if res.get("invalid_count", 0) > 0:
+                console.print(
+                    f"  [bold yellow]⚠ Warning: {res['invalid_count']} import files marked invalid:[/bold yellow]"
+                )
+                for inv in res.get("invalid_files", []) or []:
+                    console.print(f"    • {inv}")
         else:
             console.print(f"[bold red]✖ Asset reimport failed:[/bold red] {res.get('message')}")
+            raise typer.Exit(code=1)
+
+    @app.command("config-resolution", rich_help_panel="Project")
+    @app.command("set-resolution", rich_help_panel="Project")
+    def cmd_config_resolution(
+        preset: str | None = typer.Option(
+            None, "--preset", "-preset", help="Resolution preset: 720p, 1080p, 800x600, 1024x768, retro"
+        ),
+        width: int | None = typer.Option(None, "--width", "-w", help="Custom viewport width in pixels"),
+        height: int | None = typer.Option(None, "--height", "-h", help="Custom viewport height in pixels"),
+        stretch_mode: str = typer.Option(
+            "canvas_items", "--stretch", "-s", help="Stretch mode: disabled, canvas_items, viewport"
+        ),
+        stretch_aspect: str = typer.Option(
+            "keep", "--aspect", "-a", help="Stretch aspect ratio: ignore, keep, keep_width, keep_height, expand"
+        ),
+        project: str = typer.Option(".", "--project", "-p", help="Path to Godot project directory"),
+        json_output: bool = typer.Option(
+            False, "--json", help="Output raw JSON for LLM Agent parsing"
+        ),
+    ):
+        """Set project display resolution and responsive stretch mode in project.godot."""
+        from ..operations.config_editor import set_project_resolution
+
+        res = set_project_resolution(
+            project,
+            width=width,
+            height=height,
+            preset=preset,
+            stretch_mode=stretch_mode,
+            stretch_aspect=stretch_aspect,
+        )
+        if common.handle_json_flag(res, json_output, exit_on_error=True):
+            return
+        if res["status"] == "success":
+            console.print(f"[bold green]✔ {res['message']}[/bold green]")
+        else:
+            console.print(f"[bold red]✖ Failed to set resolution:[/bold red] {res.get('message')}")
             raise typer.Exit(code=1)

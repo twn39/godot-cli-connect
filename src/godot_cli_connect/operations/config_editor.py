@@ -28,7 +28,60 @@ __all__ = [
     "remove_autoload",
     "set_config_setting",
     "set_config_setting_offline",
+    "set_project_resolution",
 ]
+
+
+PRESET_RESOLUTIONS = {
+    "720p": (1280, 720),
+    "1280x720": (1280, 720),
+    "1080p": (1920, 1080),
+    "1920x1080": (1920, 1080),
+    "800x600": (800, 600),
+    "1024x768": (1024, 768),
+    "640x360": (640, 360),
+    "retro": (640, 360),
+}
+
+
+def set_project_resolution(
+    project_path: str,
+    width: int | None = None,
+    height: int | None = None,
+    preset: str | None = None,
+    stretch_mode: str = "canvas_items",
+    stretch_aspect: str = "keep",
+) -> dict[str, Any]:
+    """Configures project viewport size and stretch settings persistently in project.godot."""
+    abs_project = os.path.abspath(project_path)
+    project_godot_path = os.path.join(abs_project, "project.godot")
+    if not os.path.exists(project_godot_path):
+        return err(f"No project.godot found at {abs_project}")
+
+    if preset and preset.lower() in PRESET_RESOLUTIONS:
+        width, height = PRESET_RESOLUTIONS[preset.lower()]
+    elif width is None or height is None:
+        width, height = 1280, 720
+
+    w_val = float(width)
+    h_val = float(height)
+
+    r1 = set_config_setting_offline(project_godot_path, "display/window/size/viewport_width", w_val)
+    r2 = set_config_setting_offline(project_godot_path, "display/window/size/viewport_height", h_val)
+    r3 = set_config_setting_offline(project_godot_path, "display/window/stretch/mode", stretch_mode)
+    r4 = set_config_setting_offline(project_godot_path, "display/window/stretch/aspect", stretch_aspect)
+
+    if r1 and r2 and r3 and r4:
+        return ok(
+            message=f"Project resolution updated to {width}x{height} (stretch: {stretch_mode}/{stretch_aspect}).",
+            viewport_width=width,
+            viewport_height=height,
+            stretch_mode=stretch_mode,
+            stretch_aspect=stretch_aspect,
+            project_path=abs_project,
+            mode="offline",
+        )
+    return err("Failed to set project resolution settings.")
 
 
 def set_config_setting(project_path: str, setting_path: str, raw_value: str) -> dict[str, Any]:

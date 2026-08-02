@@ -71,28 +71,141 @@ func run_create() -> void:
         return err(str(e))
 
 
-def reimport_assets(project_path: str) -> dict[str, Any]:
-    """Forces Godot to scan filesystem and reimport new/modified assets (PNG, SVG, WAV, etc.)."""
+def verify_import_status(project_path: str, auto_fix_valid: bool = True) -> dict[str, Any]:
+    """
+    Scans all .import files in the project to verify import validity.
+    If imported .ctex/.stex cache files exist in .godot/imported and auto_fix_valid is True,
+    updates stale `valid=false` lines to `valid=true` in .import files.
+    """
+    abs_project = os.path.abspath(project_path)
+    imported_dir = os.path.join(abs_project, ".godot", "imported")
+    valid_list = []
+    invalid_list = []
+
+    for root, _, files in os.walk(abs_project):
+        if ".godot" in root or ".git" in root:
+            continue
+        for f in files:
+            if f.endswith(".import"):
+                full_p = os.path.join(root, f)
+                try:
+                    with open(full_p, "r", encoding="utf-8", errors="ignore") as fp:
+                        content = fp.read()
+                    rel_p = os.path.relpath(full_p, abs_project)
+
+                    is_invalid = "valid=false" in content
+                    if is_invalid and auto_fix_valid and os.path.isdir(imported_dir):
+                        asset_stem = f[:-7]  # remove .import suffix
+                        matching_ctex = [
+                            cf for cf in os.listdir(imported_dir) if cf.startswith(asset_stem)
+                        ]
+                        if matching_ctex:
+                            new_content = content.replace("valid=false", "valid=true")
+                            with open(full_p, "w", encoding="utf-8") as fp:
+                                fp.write(new_content)
+                            is_invalid = False
+
+                    if is_invalid:
+                        invalid_list.append(rel_p)
+                    else:
+                        valid_list.append(rel_p)
+                except Exception:
+                    pass
+
+    return {
+        "total": len(valid_list) + len(invalid_list),
+        "valid": valid_list,
+        "invalid": invalid_list,
+        "valid_count": len(valid_list),
+        "invalid_count": len(invalid_list),
+    }
+
+
+def fix_invalid_import_files(project_path: str) -> int:
+    """Fixes `valid=false` lines in .import files so Godot will re-evaluates and import them."""
+    abs_project = os.path.abspath(project_path)
+    fixed = 0
+    for root, _, files in os.walk(abs_project):
+        if ".godot" in root or ".git" in root:
+            continue
+        for f in files:
+            if f.endswith(".import"):
+                full_p = os.path.join(root, f)
+                try:
+                    with open(full_p, "r", encoding="utf-8", errors="ignore") as fp:
+                        content = fp.read()
+                    if "valid=false" in content:
+                        new_content = content.replace("valid=false\n", "").replace("valid=false", "")
+                        with open(full_p, "w", encoding="utf-8") as fp:
+                            fp.write(new_content)
+                        fixed += 1
+                except Exception:
+                    pass
+    return fixed
+
+
+def reimport_assets(project_path: str, clean: bool = False) -> dict[str, Any]:
+    """
+    Forces Godot to scan filesystem and reimport new/modified assets.
+
+    Args:
+        project_path: Path to Godot project directory.
+        clean: If True, purges ``.godot/imported`` cache before scanning for a clean rebuild.
+    """
+    import shutil
     from .runner import build_godot_cmd, run_godot_cmd
 
     godot_bin = find_godot_executable()
     abs_project = os.path.abspath(project_path)
+    imported_dir = os.path.join(abs_project, ".godot", "imported")
+
+    # Fix invalid .import files before running editor scan
+    fix_invalid_import_files(abs_project)
+
+    if clean and os.path.isdir(imported_dir):
+        try:
+            shutil.rmtree(imported_dir)
+        except Exception:
+            pass
 
     cmd = build_godot_cmd(
         godot_bin,
         project_path=abs_project,
         headless=True,
-        extra_flags=["--editor", "--quit"],
+        editor=True,
+        quit_after=True,
     )
 
     try:
         res = run_godot_cmd(cmd, timeout=30)
+        status_info = verify_import_status(abs_project)
+
+        # If invalid imports exist and we haven't cleaned yet, attempt auto-recovery
+        if status_info["invalid_count"] > 0 and not clean:
+            fix_invalid_import_files(abs_project)
+            if os.path.isdir(imported_dir):
+                try:
+                    shutil.rmtree(imported_dir)
+                except Exception:
+                    pass
+            res = run_godot_cmd(cmd, timeout=30)
+            status_info = verify_import_status(abs_project)
+
         if res.returncode == 0:
             return ok(
-                message="Filesystem scanned and assets reimported successfully.",
+                message=(
+                    f"Assets reimported ({status_info['valid_count']} valid"
+                    + (f", {status_info['invalid_count']} invalid" if status_info['invalid_count'] else "")
+                    + ")."
+                ),
                 project_path=abs_project,
                 stdout=res.stdout,
                 returncode=res.returncode,
+                clean=clean,
+                imported_total=status_info["total"],
+                valid_count=status_info["valid_count"],
+                invalid_count=status_info["invalid_count"],
+                invalid_files=status_info["invalid"] if status_info["invalid_count"] else None,
                 mode="engine",
             )
         return err(
@@ -101,6 +214,7 @@ def reimport_assets(project_path: str) -> dict[str, Any]:
             project_path=abs_project,
             stdout=res.stdout,
             returncode=res.returncode,
+            invalid_files=status_info["invalid"],
         )
     except Exception as e:
         return err(str(e))

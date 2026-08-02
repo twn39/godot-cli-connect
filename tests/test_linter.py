@@ -88,3 +88,33 @@ def test_cli_lint(tmp_path):
 
     res = runner.invoke(app, ["lint", str(gd_file), "-p", str(tmp_path), "--json"])
     assert '"tool_used":' in res.stdout
+
+
+def test_builtin_lint_python_types_and_deprecations():
+    bad_code = """extends Node
+
+var val: str = "hello"
+var data: dict = {}
+var items: list = []
+
+func _ready() -> void:
+    var n = None
+    var ok = True
+    yield(get_tree(), "idle_frame")
+    var scene = load("res://test.tscn").instance()
+    var r = rand_range(0.0, 1.0)
+    export var count: int = 5
+    onready var label: Label = $Label
+"""
+    diags = builtin_lint_content("bad_script.gd", bad_code)
+    codes = [d["code"] for d in diags]
+    assert "type/python_str_type" in codes
+    assert "type/python_dict_type" in codes
+    assert "type/python_list_type" in codes
+    assert "syntax/python_none" in codes
+    assert "syntax/python_bool" in codes
+    assert "deprecated/yield" in codes
+    assert "deprecated/instance" in codes
+    assert "deprecated/rand_range" in codes
+    assert "deprecated/godot3_export" in codes
+    assert "deprecated/godot3_onready" in codes

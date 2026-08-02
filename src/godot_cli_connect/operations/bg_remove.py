@@ -81,7 +81,13 @@ def _load_session(model_path: str):
     """Load and cache an ONNX InferenceSession for the given model path."""
     import onnxruntime as ort
 
+    try:
+        ort.set_default_logger_severity(3)  # 3 = ERROR level (suppress WARNINGs and INFO)
+    except Exception:
+        pass
+
     opts = ort.SessionOptions()
+    opts.log_severity_level = 3  # 3 = ERROR level (suppress WARNINGs)
     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     # Prefer CoreML/CUDA when available, fall back to CPU
     available = ort.get_available_providers()
