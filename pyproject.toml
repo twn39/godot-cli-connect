@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "CLI Bridge Tool connecting AI Agents with Godot Engine 4.x runtime"
 readme = "README.md"
 authors = [
-    { name = "curry tang", email = "curry_tang@apple.com" }
+    { name = "twn39", email = "twn39@163.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [

@@ -100,6 +100,7 @@ def test_remove_background_mocked(tmp_path, monkeypatch):
 
 def test_remove_bg_cli_multi_inputs(tmp_path, monkeypatch):
     from typer.testing import CliRunner
+
     from godot_cli_connect.cli import app
 
     runner = CliRunner()
@@ -111,15 +112,23 @@ def test_remove_bg_cli_multi_inputs(tmp_path, monkeypatch):
     model = tmp_path / "BiRefNet_lite_fp16.onnx"
     model.write_bytes(b"x")
 
+    class FakeInputSpec:
+        name = "in"
+        shape = [1, 3, 1024, 1024]
+
+    class FakeOutputSpec:
+        name = "out"
+
     class FakeSession:
         def get_inputs(self):
-            class I: name = "in"; shape = [1, 3, 1024, 1024]
-            return [I()]
+            return [FakeInputSpec()]
+
         def get_outputs(self):
-            class O: name = "out"
-            return [O()]
+            return [FakeOutputSpec()]
+
         def get_providers(self):
             return ["CPUExecutionProvider"]
+
         def run(self, output_names, feed):
             return [np.zeros((1, 1, 1024, 1024), dtype=np.float32)]
 
@@ -129,3 +138,26 @@ def test_remove_bg_cli_multi_inputs(tmp_path, monkeypatch):
     result = runner.invoke(app, ["remove-bg", str(img1), str(img2), "-o", str(out_dir), "-m", str(model), "--json"])
     assert result.exit_code == 0
     assert "Processed 2/2 images" in result.stdout
+
+
+def test_erode_and_decontaminate():
+    from godot_cli_connect.operations.bg_remove import decontaminate_colors, erode_alpha
+
+    # 10x10 alpha mask with white center and 2px border
+    alpha = np.zeros((10, 10), dtype=np.uint8)
+    alpha[2:8, 2:8] = 255
+
+    eroded = erode_alpha(alpha, radius=1)
+    # Eroded mask should shrink by 1px on each side
+    assert eroded[2, 2] == 0
+    assert eroded[3, 3] == 255
+
+    # Test decontamination
+    bgr = np.full((10, 10, 3), 255, dtype=np.uint8)  # white image
+    bgr[3:7, 3:7] = (0, 0, 255)  # red interior
+    alpha_semi = alpha.copy()
+    alpha_semi[2, :] = 128  # semi-transparent border
+
+    clean_bgr = decontaminate_colors(bgr, alpha_semi)
+    assert clean_bgr.shape == bgr.shape
+

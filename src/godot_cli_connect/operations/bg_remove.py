@@ -58,12 +58,13 @@ def resolve_model_path(model_path: str | None = None) -> str:
     if env and os.path.isfile(env):
         return os.path.abspath(env)
 
+    pkg_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     candidates = [
         os.path.abspath(DEFAULT_MODEL_NAME),
         os.path.abspath(os.path.join("models", DEFAULT_MODEL_NAME)),
-        os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "..", DEFAULT_MODEL_NAME)
-        ),
+        os.path.abspath(os.path.join(pkg_dir, "models", DEFAULT_MODEL_NAME)),
+        os.path.abspath(os.path.join(pkg_dir, DEFAULT_MODEL_NAME)),
+        os.path.abspath(os.path.join(pkg_dir, "..", "..", DEFAULT_MODEL_NAME)),
     ]
     for c in candidates:
         if os.path.isfile(c):
@@ -147,6 +148,33 @@ def postprocess_mask(
     return np.clip(m_resized, 0, 255).astype(np.uint8)
 
 
+def erode_alpha(alpha: np.ndarray, radius: int = 1) -> np.ndarray:
+    """Erode alpha mask by `radius` pixels to eliminate outer edge white fringe."""
+    if radius <= 0:
+        return alpha
+    kernel_size = radius * 2 + 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    return cv2.erode(alpha, kernel)
+
+
+def decontaminate_colors(image_bgr: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+    """
+    Decontaminate background color bleed on semi-transparent edge pixels.
+    Replaces RGB values of border pixels with pure foreground RGB via inpainting.
+    """
+    semi = (alpha > 0) & (alpha < 250)
+    has_opaque = np.any(alpha >= 250)
+    if not np.any(semi) or not has_opaque:
+        return image_bgr
+
+    inpaint_mask = (alpha < 250).astype(np.uint8)
+    inpainted = cv2.inpaint(image_bgr, inpaint_mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+
+    clean_bgr = image_bgr.copy()
+    clean_bgr[semi] = inpainted[semi]
+    return clean_bgr
+
+
 def compose_rgba(image_bgr: np.ndarray, alpha: np.ndarray) -> np.ndarray:
     """BGR + alpha → BGRA uint8."""
     if alpha.shape[:2] != image_bgr.shape[:2]:
@@ -164,6 +192,8 @@ def remove_background(
     *,
     model_path: str | None = None,
     threshold: float | None = None,
+    erode: int = 0,
+    decontaminate: bool = False,
     save_mask: bool = False,
     mask_path: str | None = None,
 ) -> dict[str, Any]:
@@ -175,6 +205,8 @@ def remove_background(
         output_path: Destination RGBA PNG. Default: ``<stem>_nobg.png`` next to input.
         model_path: Optional path to BiRefNet ONNX.
         threshold: If set (0..1), hard-binarize alpha at this level after matte.
+        erode: Pixels to erode/shrink alpha mask edges (1-3px fixes white fringe).
+        decontaminate: Clean background color bleed from semi-transparent edge RGB pixels.
         save_mask: Also write grayscale mask PNG.
         mask_path: Optional mask output path.
     """
@@ -216,7 +248,14 @@ def remove_background(
             t = int(np.clip(float(threshold), 0.0, 1.0) * 255)
             alpha = np.where(alpha >= t, 255, 0).astype(np.uint8)
 
-        rgba = compose_rgba(image, alpha)
+        if erode > 0:
+            alpha = erode_alpha(alpha, radius=erode)
+
+        proc_image = image
+        if decontaminate:
+            proc_image = decontaminate_colors(image, alpha)
+
+        rgba = compose_rgba(proc_image, alpha)
         ok_write = cv2.imwrite(abs_out, rgba)
         if not ok_write:
             return err(f"Failed to write output: {abs_out}")
@@ -254,6 +293,8 @@ def remove_background_batch(
     *,
     model_path: str | None = None,
     threshold: float | None = None,
+    erode: int = 0,
+    decontaminate: bool = False,
 ) -> dict[str, Any]:
     """Remove background for multiple images; shares one loaded model session."""
     results = []
@@ -263,7 +304,14 @@ def remove_background_batch(
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
             out = os.path.join(output_dir, f"{Path(p).stem}_nobg.png")
-        res = remove_background(p, out, model_path=model_path, threshold=threshold)
+        res = remove_background(
+            p,
+            out,
+            model_path=model_path,
+            threshold=threshold,
+            erode=erode,
+            decontaminate=decontaminate,
+        )
         results.append(res)
         if res.get("status") != "success":
             errors.append({"input": p, "message": res.get("message")})

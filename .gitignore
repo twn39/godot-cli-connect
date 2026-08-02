@@ -32,9 +32,9 @@ godot_api.json
 extension_api.json
 *.log
 
-# Large ML models (download separately)
-*.onnx
-BiRefNet_lite_fp16.onnx
+# Large ML models (managed via Git LFS)
+# *.onnx model files are tracked via .gitattributes
+
 
 # Codebase Knowledge Graph
 .codegraph/

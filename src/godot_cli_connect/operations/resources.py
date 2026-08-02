@@ -89,7 +89,7 @@ def verify_import_status(project_path: str, auto_fix_valid: bool = True) -> dict
             if f.endswith(".import"):
                 full_p = os.path.join(root, f)
                 try:
-                    with open(full_p, "r", encoding="utf-8", errors="ignore") as fp:
+                    with open(full_p, encoding="utf-8", errors="ignore") as fp:
                         content = fp.read()
                     rel_p = os.path.relpath(full_p, abs_project)
 
@@ -132,7 +132,7 @@ def fix_invalid_import_files(project_path: str) -> int:
             if f.endswith(".import"):
                 full_p = os.path.join(root, f)
                 try:
-                    with open(full_p, "r", encoding="utf-8", errors="ignore") as fp:
+                    with open(full_p, encoding="utf-8", errors="ignore") as fp:
                         content = fp.read()
                     if "valid=false" in content:
                         new_content = content.replace("valid=false\n", "").replace("valid=false", "")
@@ -153,6 +153,7 @@ def reimport_assets(project_path: str, clean: bool = False) -> dict[str, Any]:
         clean: If True, purges ``.godot/imported`` cache before scanning for a clean rebuild.
     """
     import shutil
+
     from .runner import build_godot_cmd, run_godot_cmd
 
     godot_bin = find_godot_executable()

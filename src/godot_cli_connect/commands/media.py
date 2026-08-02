@@ -106,7 +106,7 @@ def register(app: typer.Typer) -> None:
     @app.command("remove-bg", rich_help_panel="Media / Assets")
     @app.command("bg-remove", rich_help_panel="Media / Assets")
     def cmd_remove_bg(
-        inputs: list[str] = typer.Argument(
+        inputs: list[str] = typer.Argument(  # noqa: B008
             ..., help="Input image path(s) (png/jpg/webp) or directory for batch mode"
         ),
         output: str | None = typer.Option(
@@ -126,6 +126,18 @@ def register(app: typer.Typer) -> None:
             "--threshold",
             "-t",
             help="Optional hard alpha threshold 0..1 (default: soft matte)",
+        ),
+        erode: int = typer.Option(
+            0,
+            "--erode",
+            "-e",
+            help="Pixels (1-3) to erode/shrink alpha mask boundary to trim white fringe",
+        ),
+        decontaminate: bool = typer.Option(
+            False,
+            "--decontaminate",
+            "-d",
+            help="Clean background color bleed on edge pixels with pure foreground RGB",
         ),
         save_mask: bool = typer.Option(False, "--mask", help="Also save grayscale alpha mask PNG"),
         json_output: bool = typer.Option(
@@ -161,11 +173,18 @@ def register(app: typer.Typer) -> None:
                 output,
                 model_path=model,
                 threshold=threshold,
+                erode=erode,
+                decontaminate=decontaminate,
                 save_mask=save_mask,
             )
         else:
             res = remove_background_batch(
-                paths, output_dir=output, model_path=model, threshold=threshold
+                paths,
+                output_dir=output,
+                model_path=model,
+                threshold=threshold,
+                erode=erode,
+                decontaminate=decontaminate,
             )
 
         if common.handle_json_flag(res, json_output, exit_on_error=True):
