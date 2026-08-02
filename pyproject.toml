@@ -1,0 +1,21 @@
+[project]
+name = "godot-cli-connect"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "curry tang", email = "curry_tang@apple.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "rich>=15.0.0",
+    "typer>=0.27.0",
+]
+
+[project.scripts]
+godot-cli = "godot_cli_connect.cli:app"
+godot-cli-connect = "godot_cli_connect.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
